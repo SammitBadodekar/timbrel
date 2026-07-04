@@ -18,7 +18,7 @@
  * the transport so it follows tempo and the grid nudge — routed straight to the
  * destination so it never gets time-stretched, muted, or soloed.
  */
-import { computePeaks, type LoopRegion, type StemKind } from '@timbrel/core'
+import { computePeaks, type LoopRegion, type StemContribution, type StemKind } from '@timbrel/core'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
@@ -26,6 +26,37 @@ export interface StemControls {
   gain: number
   muted: boolean
   soloed: boolean
+}
+
+/** One WYSIWYG export render: what to sum, and whether to bake tempo/key. */
+export interface ExportRenderSpec {
+  /** Stems to sum at these linear gains (empty for a pure click track). */
+  stems: StemContribution[]
+  /** Also mix in a synthesized metronome click track. */
+  click?: boolean
+  /** Bake the current tempo/key; when false, render at the original tempo/key. */
+  bakeTempoKey: boolean
+}
+
+/** A short synthesised click on any context/destination (live bus or offline). */
+function synthClick(
+  ctx: BaseAudioContext,
+  dest: AudioNode,
+  when: number,
+  accent: boolean
+): OscillatorNode {
+  const osc = ctx.createOscillator()
+  const env = ctx.createGain()
+  osc.frequency.value = accent ? 1600 : 1000
+  const peak = accent ? 0.7 : 0.4
+  env.gain.setValueAtTime(0.0001, when)
+  env.gain.exponentialRampToValueAtTime(peak, when + 0.002)
+  env.gain.exponentialRampToValueAtTime(0.0001, when + 0.05)
+  osc.connect(env)
+  env.connect(dest)
+  osc.start(when)
+  osc.stop(when + 0.06)
+  return osc
 }
 
 export class StudioEngine {
@@ -124,6 +155,93 @@ export class StudioEngine {
         channels.push(buffer.getChannelData(c))
       }
       out[kind] = computePeaks(channels, buckets)
+    }
+    return out
+  }
+
+  // --- Offline export (WYSIWYG) ---------------------------------------------
+
+  /**
+   * Render one export file through an `OfflineAudioContext` that mirrors the
+   * live graph (DECISIONS.md → Export): selected stems → per-stem gains →
+   * master → (SoundTouch when baking a non-neutral tempo/key) → destination,
+   * so the output is bit-identical to what the user heard. Tempo is baked the
+   * same way it plays — native `playbackRate` on every source and the node, the
+   * processor compensating the pitch — and key via `pitchSemitones`. When the
+   * tempo/key is neutral (or not baked) the stretch node is skipped entirely.
+   *
+   * A click track is synthesised fresh at the (tempo-scaled) beat times and
+   * bypasses the stretch node, exactly like the live metronome's own bus.
+   */
+  async renderExport(spec: ExportRenderSpec): Promise<AudioBuffer> {
+    const sampleRate = this.ctx.sampleRate
+    const rate = spec.bakeTempoKey ? this.rate : 1
+    const semis = spec.bakeTempoKey ? this.semitones : 0
+    const stretch = rate !== 1 || semis !== 0
+
+    // Longest contributing source, in samples at the render sample rate.
+    let maxSamples = 0
+    for (const { kind } of spec.stems) {
+      const buffer = this.buffers.get(kind)
+      if (buffer) maxSamples = Math.max(maxSamples, buffer.length)
+    }
+    if (spec.click) maxSamples = Math.max(maxSamples, Math.ceil(this.duration * sampleRate))
+    if (maxSamples === 0) throw new Error('Nothing selected to export.')
+
+    // Output is compressed by 1/rate; a short tail lets the stretch FIFO flush.
+    const tail = stretch ? Math.ceil(sampleRate * 0.5) : 0
+    const outLength = Math.ceil(maxSamples / rate) + tail
+    const offline = new OfflineAudioContext(2, outLength, sampleRate)
+
+    const master = offline.createGain()
+    if (stretch) {
+      await SoundTouchNode.register(offline, processorUrl)
+      const node = new SoundTouchNode({ context: offline })
+      node.playbackRate.value = rate
+      node.pitchSemitones.value = semis
+      master.connect(node)
+      node.connect(offline.destination)
+    } else {
+      master.connect(offline.destination)
+    }
+
+    for (const { kind, gain } of spec.stems) {
+      const buffer = this.buffers.get(kind)
+      if (!buffer) continue
+      const source = offline.createBufferSource()
+      source.buffer = buffer
+      source.playbackRate.value = rate
+      const g = offline.createGain()
+      g.gain.value = gain
+      source.connect(g)
+      g.connect(master)
+      source.start(0)
+    }
+
+    if (spec.click) {
+      const clickBus = offline.createGain()
+      clickBus.gain.value = 0.9
+      clickBus.connect(offline.destination)
+      for (let i = 0; i < this.beatTimes.length; i++) {
+        const songTime = this.beatTimes[i] + this.gridOffset
+        if (songTime < 0) continue
+        synthClick(offline, clickBus, songTime / rate, this.downbeatSet.has(this.beatTimes[i]))
+      }
+    }
+
+    return offline.startRendering()
+  }
+
+  /** Interleave an AudioBuffer's channels into f32le PCM for the ffmpeg pipe. */
+  static toInterleavedPCM(buffer: AudioBuffer): Float32Array {
+    const channels = buffer.numberOfChannels
+    const length = buffer.length
+    const out = new Float32Array(length * channels)
+    const data: Float32Array[] = []
+    for (let c = 0; c < channels; c++) data.push(buffer.getChannelData(c))
+    for (let i = 0; i < length; i++) {
+      const base = i * channels
+      for (let c = 0; c < channels; c++) out[base + c] = data[c][i]
     }
     return out
   }
@@ -275,20 +393,9 @@ export class StudioEngine {
     }
   }
 
-  /** A short synthesised click; downbeats ring higher + louder. */
+  /** A short synthesised click on the live bus; downbeats ring higher + louder. */
   private click(when: number, accent: boolean): OscillatorNode {
-    const osc = this.ctx.createOscillator()
-    const env = this.ctx.createGain()
-    osc.frequency.value = accent ? 1600 : 1000
-    const peak = accent ? 0.7 : 0.4
-    env.gain.setValueAtTime(0.0001, when)
-    env.gain.exponentialRampToValueAtTime(peak, when + 0.002)
-    env.gain.exponentialRampToValueAtTime(0.0001, when + 0.05)
-    osc.connect(env)
-    env.connect(this.clickBus)
-    osc.start(when)
-    osc.stop(when + 0.06)
-    return osc
+    return synthClick(this.ctx, this.clickBus, when, accent)
   }
 
   get isCountingIn(): boolean {

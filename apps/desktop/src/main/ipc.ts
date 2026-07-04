@@ -24,8 +24,11 @@ import type { SidecarManager } from './sidecar/manager'
 import * as songs from './storage/songs'
 import { hashFile, songIdFromHash } from './lib/hash'
 import { songDir, stemsDir, projectPath, peaksPath, stemPath } from './lib/paths'
+import { registerExportIpc } from './export/ipc'
 
 export function registerIpc(sidecar: SidecarManager): void {
+  registerExportIpc()
+
   ipcMain.handle(IpcChannel.PickAudio, async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],

@@ -4,6 +4,8 @@
  * sync. Domain types come from `@timbrel/core`.
  */
 import type {
+  ExportEncodeSettings,
+  ExportFormat,
   LoopRegion,
   MixerState,
   PeaksFile,
@@ -22,7 +24,9 @@ export const IpcChannel = {
   SaveProject: 'project:save',
   ReadStem: 'stem:bytes',
   ReadPeaks: 'peaks:read',
-  SavePeaks: 'peaks:save'
+  SavePeaks: 'peaks:save',
+  ExportPickTarget: 'export:pickTarget',
+  ExportEncode: 'export:encode'
 } as const
 
 export interface StartSeparationInput {
@@ -67,6 +71,34 @@ export interface LoadedProject {
   stems: StemKind[]
 }
 
+/** Ask the main process for a destination via a native dialog. `file` picks a
+ *  single save path (one output); `dir` picks a folder (many outputs). */
+export interface ExportPickTargetInput {
+  kind: 'file' | 'dir'
+  /** Suggested filename for the save dialog (file mode only). */
+  defaultName: string
+  /** Drives the save dialog's file-type filter (file mode only). */
+  format: ExportFormat
+}
+
+/**
+ * One encode request: raw interleaved f32 PCM from the renderer's offline
+ * render → ffmpeg → a file. For single-file exports `targetPath` is the chosen
+ * file; for multi-file exports it's the chosen folder and `filename` is joined.
+ */
+export interface ExportEncodeInput {
+  targetPath: string
+  /** When set, `targetPath` is a folder and this is joined onto it. */
+  filename?: string
+  /** Interleaved 32-bit float PCM, little-endian. */
+  pcm: ArrayBuffer
+  sampleRate: number
+  channels: number
+  settings: ExportEncodeSettings
+}
+
+export type ExportEncodeResult = { ok: true; path: string } | { ok: false; error: string }
+
 /**
  * The editable subset of `project.json` the studio writes back (debounced).
  * Every field is optional so callers patch only what changed; the main process
@@ -95,4 +127,8 @@ export interface TimbrelApi {
   getPeaks(songId: string): Promise<PeaksFile | null>
   /** Persist computed waveform peaks for instant re-render next time. */
   savePeaks(songId: string, peaks: PeaksFile): Promise<void>
+  /** Open a native dialog for an export destination; null if cancelled. */
+  pickExportTarget(input: ExportPickTargetInput): Promise<string | null>
+  /** Encode rendered PCM to a file via ffmpeg. */
+  encodeExport(input: ExportEncodeInput): Promise<ExportEncodeResult>
 }

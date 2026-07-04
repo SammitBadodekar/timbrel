@@ -11,6 +11,8 @@ const timbrel: TimbrelApi = {
   getStemBytes: (songId, kind) => ipcRenderer.invoke(IpcChannel.ReadStem, songId, kind),
   getPeaks: (songId) => ipcRenderer.invoke(IpcChannel.ReadPeaks, songId),
   savePeaks: (songId, peaks) => ipcRenderer.invoke(IpcChannel.SavePeaks, songId, peaks),
+  pickExportTarget: (input) => ipcRenderer.invoke(IpcChannel.ExportPickTarget, input),
+  encodeExport: (input) => ipcRenderer.invoke(IpcChannel.ExportEncode, input),
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)

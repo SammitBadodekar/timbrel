@@ -15,6 +15,7 @@ import { formatTime } from '../lib/format'
 import StemRow from './StemRow'
 import Waveform from './Waveform'
 import BeatGrid from './BeatGrid'
+import ExportPanel from './ExportPanel'
 
 interface StudioProps {
   songId: string
@@ -65,6 +66,9 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const [loop, setLoop] = useState<LoopRegion | null>(null)
   const [metronome, setMetronome] = useState(false)
   const [countIn, setCountIn] = useState(false)
+  // The engine instance the export panel renders against. Captured from the ref
+  // in the Export click handler (never read the ref during render); null = closed.
+  const [exportEngine, setExportEngine] = useState<StudioEngine | null>(null)
   const [countingIn, setCountingIn] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -187,6 +191,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
       cancelled = true
       engine.dispose()
       engineRef.current = null
+      setExportEngine(null)
     }
   }, [songId])
 
@@ -616,6 +621,17 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                 Count-in
               </button>
             </div>
+
+            <button
+              onClick={() => {
+                const e = engineRef.current
+                if (e) setExportEngine(e)
+              }}
+              className="ml-auto rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+              title="Export stems, mixdown, minus-one, or a click track"
+            >
+              Export
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -711,6 +727,18 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
               </div>
             </div>
           </div>
+
+          {exportEngine && (
+            <ExportPanel
+              engine={exportEngine}
+              title={project?.title ?? 'export'}
+              stemKinds={stemKinds}
+              controls={controls}
+              tempoKey={tempoKey}
+              hasBeats={hasGrid}
+              onClose={() => setExportEngine(null)}
+            />
+          )}
         </>
       )}
     </div>
