@@ -11,8 +11,14 @@
  * `SoundTouchNode`. Tempo is driven by mirroring `playbackRate` on every stem
  * source and the node (the processor auto-compensates the pitch); key is
  * `pitchSemitones`. The node is bypassed while neutral to avoid its latency.
+ *
+ * Loop regions wrap playback at the loop end (polled from the RAF via
+ * `activeLoop`, re-using `seek`). The metronome is a lookahead scheduler that
+ * synthesises clicks on `features.beatTimes` — mapped through the same clock as
+ * the transport so it follows tempo and the grid nudge — routed straight to the
+ * destination so it never gets time-stretched, muted, or soloed.
  */
-import { computePeaks, type StemKind } from '@timbrel/core'
+import { computePeaks, type LoopRegion, type StemKind } from '@timbrel/core'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
@@ -41,12 +47,32 @@ export class StudioEngine {
   private semitones = 0
   private routedThroughStretch = false
 
+  // Loop region (non-null only while an enabled loop is set).
+  private loop: LoopRegion | null = null
+
+  // Metronome — its own bus straight to the destination (never time-stretched,
+  // muted, or soloed), driven by a lookahead scheduler over the beat times.
+  private readonly clickBus: GainNode
+  private metronomeOn = false
+  private beatTimes: number[] = []
+  private downbeatSet = new Set<number>()
+  private gridOffset = 0
+  private schedulerId: number | null = null
+  private lastScheduledBeat = -Infinity
+  private countInTimer: number | null = null
+  private countInNodes: OscillatorNode[] = []
+  private readonly LOOKAHEAD = 0.1 // schedule clicks this far ahead (s)
+  private readonly SCHED_INTERVAL = 25 // scheduler poll period (ms)
+
   duration = 0
 
   constructor() {
     this.ctx = new AudioContext()
     this.master = this.ctx.createGain()
     this.master.connect(this.ctx.destination)
+    this.clickBus = this.ctx.createGain()
+    this.clickBus.gain.value = 0.9
+    this.clickBus.connect(this.ctx.destination)
   }
 
   /** Decode every stem from its FLAC bytes and build its gain node. */
@@ -133,6 +159,9 @@ export class StudioEngine {
       source.playbackRate.value = clamped
     }
     if (this.stNode) this.stNode.playbackRate.value = clamped
+    // Upcoming beats must be re-timed for the new rate (already-scheduled
+    // clicks in the ~100 ms window keep their old timing — negligible drift).
+    this.lastScheduledBeat = -Infinity
     void this.updateRouting()
   }
 
@@ -179,6 +208,127 @@ export class StudioEngine {
     }
   }
 
+  // --- Loop region ----------------------------------------------------------
+
+  /** Set the active loop, or null to disable. Studio passes the enabled one. */
+  setLoop(loop: LoopRegion | null): void {
+    this.loop = loop && loop.endSec > loop.startSec ? loop : null
+  }
+
+  get activeLoop(): LoopRegion | null {
+    return this.loop
+  }
+
+  // --- Metronome ------------------------------------------------------------
+
+  /** Feed the click scheduler the detected beats + the manual grid nudge. */
+  setBeats(beatTimes: number[], downbeatTimes: number[], gridOffset: number): void {
+    this.beatTimes = beatTimes
+    this.downbeatSet = new Set(downbeatTimes)
+    this.gridOffset = gridOffset
+  }
+
+  get metronomeEnabled(): boolean {
+    return this.metronomeOn
+  }
+
+  setMetronome(on: boolean): void {
+    this.metronomeOn = on
+    if (on && this.playing) this.startScheduler()
+    else if (!on) this.stopScheduler()
+  }
+
+  private startScheduler(): void {
+    if (this.schedulerId != null) return
+    this.lastScheduledBeat = -Infinity
+    this.schedulerId = window.setInterval(() => this.scheduleClicks(), this.SCHED_INTERVAL)
+  }
+
+  private stopScheduler(): void {
+    if (this.schedulerId == null) return
+    window.clearInterval(this.schedulerId)
+    this.schedulerId = null
+  }
+
+  /**
+   * Lookahead scheduler: each tick, queue every beat whose wall-clock time falls
+   * in the next `LOOKAHEAD` window. Beat song-time `t + gridOffset` maps to
+   * wall-clock via the transport clock (`startedAtCtxTime`/`offsetSec`/`rate`),
+   * so clicks track tempo and the nudge. `lastScheduledBeat` (reset on any
+   * seek/tempo change) prevents double-scheduling as the window advances.
+   */
+  private scheduleClicks(): void {
+    if (!this.metronomeOn || !this.playing) return
+    const now = this.ctx.currentTime
+    const windowEnd = now + this.LOOKAHEAD
+    // Never click at/after the loop end — playback wraps there.
+    const limit = this.loop ? this.loop.endSec : this.duration
+    for (let i = 0; i < this.beatTimes.length; i++) {
+      const songTime = this.beatTimes[i] + this.gridOffset
+      if (songTime <= this.lastScheduledBeat) continue
+      if (songTime >= limit) break
+      const at = this.startedAtCtxTime + (songTime - this.offsetSec) / this.rate
+      if (at > windowEnd) break // beats are sorted — nothing else is in range
+      this.lastScheduledBeat = songTime
+      if (at < now) continue // already elapsed — skip, but don't revisit
+      this.click(at, this.downbeatSet.has(this.beatTimes[i]))
+    }
+  }
+
+  /** A short synthesised click; downbeats ring higher + louder. */
+  private click(when: number, accent: boolean): OscillatorNode {
+    const osc = this.ctx.createOscillator()
+    const env = this.ctx.createGain()
+    osc.frequency.value = accent ? 1600 : 1000
+    const peak = accent ? 0.7 : 0.4
+    env.gain.setValueAtTime(0.0001, when)
+    env.gain.exponentialRampToValueAtTime(peak, when + 0.002)
+    env.gain.exponentialRampToValueAtTime(0.0001, when + 0.05)
+    osc.connect(env)
+    env.connect(this.clickBus)
+    osc.start(when)
+    osc.stop(when + 0.06)
+    return osc
+  }
+
+  get isCountingIn(): boolean {
+    return this.countInTimer != null
+  }
+
+  /**
+   * Play `beats` count-in clicks spaced `interval` s apart, then invoke
+   * `onComplete` (which starts the transport). Cancels any prior count-in.
+   */
+  startCountIn(beats: number, interval: number, onComplete: () => void): void {
+    this.cancelCountIn()
+    void this.ctx.resume()
+    const first = this.ctx.currentTime + 0.12
+    for (let i = 0; i < beats; i++) {
+      this.countInNodes.push(this.click(first + i * interval, i === 0))
+    }
+    const totalMs = (first - this.ctx.currentTime + beats * interval) * 1000
+    this.countInTimer = window.setTimeout(() => {
+      this.countInTimer = null
+      this.countInNodes = []
+      onComplete()
+    }, totalMs)
+  }
+
+  cancelCountIn(): void {
+    if (this.countInTimer != null) {
+      window.clearTimeout(this.countInTimer)
+      this.countInTimer = null
+    }
+    for (const osc of this.countInNodes) {
+      try {
+        osc.stop()
+      } catch {
+        // already stopped
+      }
+    }
+    this.countInNodes = []
+  }
+
   setGain(kind: StemKind, value: number): void {
     const c = this.controls.get(kind)
     if (!c) return
@@ -209,18 +359,22 @@ export class StudioEngine {
     if (from >= this.duration) from = 0
     this.startSources(from)
     this.playing = true
+    if (this.metronomeOn) this.startScheduler()
   }
 
   pause(): void {
     if (!this.playing) return
     this.offsetSec = this.currentTime
     this.stopSources()
+    this.stopScheduler()
     this.playing = false
   }
 
   seek(seconds: number): void {
     const clamped = Math.max(0, Math.min(seconds, this.duration))
     this.offsetSec = clamped
+    // Post-seek beats must be (re)scheduled from the new position.
+    this.lastScheduledBeat = -Infinity
     if (this.playing) this.startSources(clamped)
   }
 
@@ -239,12 +393,15 @@ export class StudioEngine {
   /** Called by the RAF loop when playback runs off the end. */
   handleEnded(): void {
     this.stopSources()
+    this.stopScheduler()
     this.playing = false
     this.offsetSec = 0
   }
 
   dispose(): void {
     this.stopSources()
+    this.stopScheduler()
+    this.cancelCountIn()
     this.stNode?.disconnect()
     void this.ctx.close()
   }
