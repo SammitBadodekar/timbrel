@@ -7,7 +7,10 @@ const timbrel: TimbrelApi = {
   startSeparation: (input) => ipcRenderer.invoke(IpcChannel.StartSeparation, input),
   listSongs: () => ipcRenderer.invoke(IpcChannel.ListSongs),
   loadProject: (songId) => ipcRenderer.invoke(IpcChannel.LoadProject, songId),
+  saveProject: (songId, patch) => ipcRenderer.invoke(IpcChannel.SaveProject, songId, patch),
   getStemBytes: (songId, kind) => ipcRenderer.invoke(IpcChannel.ReadStem, songId, kind),
+  getPeaks: (songId) => ipcRenderer.invoke(IpcChannel.ReadPeaks, songId),
+  savePeaks: (songId, peaks) => ipcRenderer.invoke(IpcChannel.SavePeaks, songId, peaks),
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)

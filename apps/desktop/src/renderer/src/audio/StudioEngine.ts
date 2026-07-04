@@ -9,7 +9,7 @@
  * (v0.2 will insert a single SoundTouch WASM node on the master bus for global
  * real-time tempo/key — see DECISIONS.md → Studio.)
  */
-import type { StemKind } from '@timbrel/core'
+import { computePeaks, type StemKind } from '@timbrel/core'
 
 export interface StemControls {
   gain: number
@@ -66,6 +66,28 @@ export class StudioEngine {
 
   getControls(kind: StemKind): StemControls {
     return this.controls.get(kind) ?? { gain: 1, muted: false, soloed: false }
+  }
+
+  /** Restore persisted mixer state (from `project.json`) onto loaded stems. */
+  applyMixerState(mixer: Partial<Record<StemKind, StemControls>>): void {
+    for (const kind of this.controls.keys()) {
+      const m = mixer[kind]
+      if (m) this.controls.set(kind, { gain: m.gain, muted: m.muted, soloed: m.soloed })
+    }
+    this.applyMix()
+  }
+
+  /** Downsample every decoded stem to peak envelopes for waveform rendering. */
+  computeAllPeaks(buckets: number): Partial<Record<StemKind, number[]>> {
+    const out: Partial<Record<StemKind, number[]>> = {}
+    for (const [kind, buffer] of this.buffers) {
+      const channels: Float32Array[] = []
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        channels.push(buffer.getChannelData(c))
+      }
+      out[kind] = computePeaks(channels, buckets)
+    }
+    return out
   }
 
   setGain(kind: StemKind, value: number): void {

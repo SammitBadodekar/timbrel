@@ -8,12 +8,14 @@ import {
   createProjectFile,
   emptyFeatures,
   STEM_KINDS,
+  type PeaksFile,
   type ProjectFile,
   type StemKind
 } from '@timbrel/core'
 import {
   IpcChannel,
   type LoadedProject,
+  type ProjectPatch,
   type SeparationEvent,
   type StartSeparationInput,
   type StartSeparationResult
@@ -21,7 +23,7 @@ import {
 import type { SidecarManager } from './sidecar/manager'
 import * as songs from './storage/songs'
 import { hashFile, songIdFromHash } from './lib/hash'
-import { songDir, stemsDir, projectPath, stemPath } from './lib/paths'
+import { songDir, stemsDir, projectPath, peaksPath, stemPath } from './lib/paths'
 
 export function registerIpc(sidecar: SidecarManager): void {
   ipcMain.handle(IpcChannel.PickAudio, async () => {
@@ -50,8 +52,11 @@ export function registerIpc(sidecar: SidecarManager): void {
 
   ipcMain.handle(IpcChannel.ListSongs, async () => songs.list())
 
-  ipcMain.handle(IpcChannel.LoadProject, async (_event, songId: string) =>
-    loadProject(songId)
+  ipcMain.handle(IpcChannel.LoadProject, async (_event, songId: string) => loadProject(songId))
+
+  ipcMain.handle(
+    IpcChannel.SaveProject,
+    async (_event, songId: string, patch: ProjectPatch): Promise<void> => saveProject(songId, patch)
   )
 
   ipcMain.handle(
@@ -61,6 +66,24 @@ export function registerIpc(sidecar: SidecarManager): void {
       if (!existsSync(path)) return null
       const buf = await readFile(path)
       return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.ReadPeaks,
+    async (_event, songId: string): Promise<PeaksFile | null> => {
+      try {
+        return JSON.parse(await readFile(peaksPath(songId), 'utf8')) as PeaksFile
+      } catch {
+        return null
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.SavePeaks,
+    async (_event, songId: string, peaks: PeaksFile): Promise<void> => {
+      await writeFile(peaksPath(songId), JSON.stringify(peaks), 'utf8')
     }
   )
 }
@@ -167,6 +190,27 @@ async function loadProject(songId: string): Promise<LoadedProject | null> {
   } catch {
     return null
   }
+}
+
+/** Merge the editable subset of a project back onto disk. No-op if missing. */
+async function saveProject(songId: string, patch: ProjectPatch): Promise<void> {
+  let project: ProjectFile
+  try {
+    project = JSON.parse(await readFile(projectPath(songId), 'utf8')) as ProjectFile
+  } catch {
+    return // project.json not written yet (e.g. separation still running)
+  }
+  const next: ProjectFile = {
+    ...project,
+    ...(patch.mixer ? { mixer: patch.mixer } : {}),
+    ...(patch.tempoKey ? { tempoKey: patch.tempoKey } : {}),
+    ...(patch.loops ? { loops: patch.loops } : {}),
+    ...(patch.beatGridOffsetSec !== undefined
+      ? { beatGridOffsetSec: patch.beatGridOffsetSec }
+      : {}),
+    updatedAt: new Date().toISOString()
+  }
+  await writeFile(projectPath(songId), JSON.stringify(next, null, 2), 'utf8')
 }
 
 function broadcast(event: SeparationEvent): void {

@@ -1,13 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
-import { STEM_KINDS, type ProjectFile, type StemKind } from '@timbrel/core'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  PEAK_BUCKETS,
+  STEM_COLORS,
+  STEM_KINDS,
+  type ProjectFile,
+  type StemKind
+} from '@timbrel/core'
+import type { ProjectPatch } from '@shared/ipc'
 import { StudioEngine, type StemControls } from '../audio/StudioEngine'
 import { formatTime } from '../lib/format'
 import StemRow from './StemRow'
+import Waveform from './Waveform'
+import BeatGrid from './BeatGrid'
 
 interface StudioProps {
   songId: string
   onBack: () => void
 }
+
+/** Gutter (channel-strip) width in px — must match `StemRow`'s `w-40` so the
+ *  beat-grid / playhead overlay lines up with the start of the waveform lanes. */
+const GUTTER = 160
+const NO_PEAKS: number[] = []
 
 function defaultControls(): Record<StemKind, StemControls> {
   return Object.fromEntries(
@@ -17,17 +31,54 @@ function defaultControls(): Record<StemKind, StemControls> {
 
 function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const engineRef = useRef<StudioEngine | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
   const [project, setProject] = useState<ProjectFile | null>(null)
   const [stemKinds, setStemKinds] = useState<StemKind[]>([])
   const [controls, setControls] = useState<Record<StemKind, StemControls>>(defaultControls)
+  const [peaks, setPeaks] = useState<Partial<Record<StemKind, number[]>>>({})
+  const [beatGridOffsetSec, setBeatGridOffsetSec] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [laneW, setLaneW] = useState(0)
+  const [laneH, setLaneH] = useState(0)
 
+  // --- Debounced persistence back to project.json ---------------------------
+  const saveTimer = useRef<number | undefined>(undefined)
+  const pending = useRef<ProjectPatch | null>(null)
+  const didHydrate = useRef(false)
+
+  const scheduleSave = useCallback(
+    (patch: ProjectPatch) => {
+      pending.current = { ...pending.current, ...patch }
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = window.setTimeout(() => {
+        const p = pending.current
+        pending.current = null
+        if (p) void window.timbrel.saveProject(songId, p)
+      }, 500)
+    },
+    [songId]
+  )
+
+  // Flush any pending save when leaving the studio.
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(saveTimer.current)
+      if (pending.current) {
+        void window.timbrel.saveProject(songId, pending.current)
+        pending.current = null
+      }
+    }
+  }, [songId])
+
+  // --- Load project + decode stems + peaks ----------------------------------
   useEffect(() => {
     let cancelled = false
+    didHydrate.current = false
     const engine = new StudioEngine()
     engineRef.current = engine
 
@@ -40,6 +91,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
         return
       }
       setProject(loaded.project)
+
       const buffers: Partial<Record<StemKind, ArrayBuffer>> = {}
       await Promise.all(
         loaded.stems.map(async (kind) => {
@@ -48,15 +100,41 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
         })
       )
       if (cancelled) return
+
       const kinds = await engine.loadStems(buffers)
       if (cancelled) return
+
+      engine.applyMixerState(loaded.project.mixer)
       setStemKinds(kinds)
       setControls(() => {
         const next = defaultControls()
         for (const k of kinds) next[k] = { ...engine.getControls(k) }
         return next
       })
+      setBeatGridOffsetSec(loaded.project.beatGridOffsetSec)
       setDuration(engine.duration)
+
+      // Cached peaks render instantly; otherwise compute once and persist.
+      const cached = await window.timbrel.getPeaks(songId)
+      if (cancelled) return
+      let stemPeaks: Partial<Record<StemKind, number[]>>
+      if (
+        cached &&
+        cached.buckets === PEAK_BUCKETS &&
+        kinds.every((k) => (cached.stems[k]?.length ?? 0) > 0)
+      ) {
+        stemPeaks = cached.stems
+      } else {
+        stemPeaks = engine.computeAllPeaks(PEAK_BUCKETS)
+        void window.timbrel.savePeaks(songId, {
+          version: 1,
+          buckets: PEAK_BUCKETS,
+          durationSec: engine.duration,
+          stems: stemPeaks
+        })
+      }
+      if (cancelled) return
+      setPeaks(stemPeaks)
       setLoading(false)
     })().catch((err: unknown) => {
       if (!cancelled) {
@@ -72,6 +150,17 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     }
   }, [songId])
 
+  // Persist mixer / grid offset on change (skipping the initial hydration echo).
+  useEffect(() => {
+    if (loading) return
+    if (!didHydrate.current) {
+      didHydrate.current = true
+      return
+    }
+    scheduleSave({ mixer: controls, beatGridOffsetSec })
+  }, [controls, beatGridOffsetSec, loading, scheduleSave])
+
+  // --- 60fps playhead -------------------------------------------------------
   useEffect(() => {
     let raf = 0
     const tick = (): void => {
@@ -89,6 +178,20 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     return () => cancelAnimationFrame(raf)
   }, [])
 
+  // --- Measure the lane region for the overlay (grid + playhead) -------------
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const update = (): void => {
+      setLaneW(el.clientWidth)
+      setLaneH(el.clientHeight)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [loading, stemKinds.length])
+
   const togglePlay = async (): Promise<void> => {
     const engine = engineRef.current
     if (!engine) return
@@ -102,8 +205,15 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   }
 
   const onSeek = (t: number): void => {
-    engineRef.current?.seek(t)
-    setCurrentTime(t)
+    const clamped = Math.max(0, Math.min(t, duration))
+    engineRef.current?.seek(clamped)
+    setCurrentTime(clamped)
+  }
+
+  const seekFromLane = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (rect.width === 0) return
+    onSeek(((e.clientX - rect.left) / rect.width) * duration)
   }
 
   const onGain = (kind: StemKind, value: number): void => {
@@ -121,8 +231,14 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     setControls((c) => ({ ...c, [kind]: { ...c[kind], soloed } }))
   }
 
+  const nudge = (deltaSec: number): void => {
+    setBeatGridOffsetSec((o) => Math.round((o + deltaSec) * 1000) / 1000)
+  }
+
   const anySolo = stemKinds.some((k) => controls[k].soloed)
   const features = project?.features
+  const hasGrid = !!features && features.beatTimes.length > 0
+  const playheadX = duration > 0 ? (currentTime / duration) * laneW : 0
 
   return (
     <div className="flex h-full flex-col">
@@ -150,7 +266,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
 
       {!loading && !error && (
         <>
-          <div className="flex items-center gap-4 px-6 py-4">
+          <div className="flex items-center gap-4 border-b border-border px-6 py-4">
             <button
               onClick={togglePlay}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-lg text-white hover:bg-accent-hover"
@@ -174,20 +290,79 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
             <span className="w-12 font-mono text-sm tabular-nums text-muted">
               {formatTime(duration)}
             </span>
+
+            {hasGrid && (
+              <div className="flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs text-muted">
+                <span className="mr-0.5">Grid</span>
+                <button
+                  onClick={() => nudge(-0.01)}
+                  className="h-5 w-5 rounded-md border border-border leading-none hover:text-text"
+                  title="Nudge grid earlier (−10 ms)"
+                >
+                  −
+                </button>
+                <span className="w-14 text-center font-mono tabular-nums text-text">
+                  {beatGridOffsetSec >= 0 ? '+' : ''}
+                  {Math.round(beatGridOffsetSec * 1000)} ms
+                </span>
+                <button
+                  onClick={() => nudge(0.01)}
+                  className="h-5 w-5 rounded-md border border-border leading-none hover:text-text"
+                  title="Nudge grid later (+10 ms)"
+                >
+                  +
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className="flex-1 space-y-2 overflow-y-auto px-6 pb-6">
-            {stemKinds.map((kind) => (
-              <StemRow
-                key={kind}
-                kind={kind}
-                controls={controls[kind]}
-                dimmed={anySolo && !controls[kind].soloed}
-                onGain={(v) => onGain(kind, v)}
-                onMute={() => onMute(kind)}
-                onSolo={() => onSolo(kind)}
-              />
-            ))}
+          <div className="flex-1 overflow-y-auto">
+            <div className="relative min-h-full">
+              {stemKinds.map((kind) => (
+                <div key={kind} className="flex items-stretch border-b border-border/40">
+                  <StemRow
+                    kind={kind}
+                    controls={controls[kind]}
+                    dimmed={anySolo && !controls[kind].soloed}
+                    onGain={(v) => onGain(kind, v)}
+                    onMute={() => onMute(kind)}
+                    onSolo={() => onSolo(kind)}
+                  />
+                  <div
+                    className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
+                    onClick={seekFromLane}
+                  >
+                    <Waveform
+                      peaks={peaks[kind] ?? NO_PEAKS}
+                      color={STEM_COLORS[kind]}
+                      dimmed={anySolo && !controls[kind].soloed}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {/* Beat grid + playhead, spanning only the waveform-lane column. */}
+              <div
+                ref={overlayRef}
+                className="pointer-events-none absolute"
+                style={{ top: 0, bottom: 0, left: GUTTER, right: 0 }}
+              >
+                {hasGrid && (
+                  <BeatGrid
+                    beatTimes={features.beatTimes}
+                    downbeatTimes={features.downbeatTimes}
+                    offsetSec={beatGridOffsetSec}
+                    durationSec={duration}
+                    width={laneW}
+                    height={laneH}
+                  />
+                )}
+                <div
+                  className="absolute w-px bg-accent"
+                  style={{ top: 0, bottom: 0, transform: `translateX(${playheadX}px)` }}
+                />
+              </div>
+            </div>
           </div>
         </>
       )}

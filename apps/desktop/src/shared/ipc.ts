@@ -3,7 +3,15 @@
  * payload shapes that cross the context bridge live here so all three stay in
  * sync. Domain types come from `@timbrel/core`.
  */
-import type { ProjectFile, SeparationStage, StemKind } from '@timbrel/core'
+import type {
+  LoopRegion,
+  MixerState,
+  PeaksFile,
+  ProjectFile,
+  SeparationStage,
+  StemKind,
+  TempoKeyState
+} from '@timbrel/core'
 
 export const IpcChannel = {
   PickAudio: 'dialog:pickAudio',
@@ -11,7 +19,10 @@ export const IpcChannel = {
   SeparationEvent: 'separation:event',
   ListSongs: 'library:list',
   LoadProject: 'project:load',
-  ReadStem: 'stem:bytes'
+  SaveProject: 'project:save',
+  ReadStem: 'stem:bytes',
+  ReadPeaks: 'peaks:read',
+  SavePeaks: 'peaks:save'
 } as const
 
 export interface StartSeparationInput {
@@ -56,6 +67,18 @@ export interface LoadedProject {
   stems: StemKind[]
 }
 
+/**
+ * The editable subset of `project.json` the studio writes back (debounced).
+ * Every field is optional so callers patch only what changed; the main process
+ * merges it onto the on-disk project and bumps `updatedAt`.
+ */
+export interface ProjectPatch {
+  mixer?: MixerState
+  tempoKey?: TempoKeyState
+  loops?: LoopRegion[]
+  beatGridOffsetSec?: number
+}
+
 /** The surface exposed on `window.timbrel` by the preload bridge. */
 export interface TimbrelApi {
   pickAudioFile(): Promise<string | null>
@@ -64,6 +87,12 @@ export interface TimbrelApi {
   onSeparationEvent(cb: (event: SeparationEvent) => void): () => void
   listSongs(): Promise<SongSummary[]>
   loadProject(songId: string): Promise<LoadedProject | null>
+  /** Merge editable studio state into `project.json`. */
+  saveProject(songId: string, patch: ProjectPatch): Promise<void>
   /** Raw FLAC bytes for a stem, for Web Audio `decodeAudioData`. */
   getStemBytes(songId: string, kind: StemKind): Promise<ArrayBuffer | null>
+  /** Cached waveform peaks, or null if not computed yet. */
+  getPeaks(songId: string): Promise<PeaksFile | null>
+  /** Persist computed waveform peaks for instant re-render next time. */
+  savePeaks(songId: string, peaks: PeaksFile): Promise<void>
 }

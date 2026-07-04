@@ -10,6 +10,11 @@ interface StemRowProps {
   onSolo: () => void
 }
 
+/**
+ * The per-stem channel strip: the fixed-width gutter that sits to the left of a
+ * waveform lane (color dot, label, mute/solo, volume). Width must match the
+ * `GUTTER` constant the studio uses to align the beat-grid/playhead overlay.
+ */
 function StemRow({
   kind,
   controls,
@@ -21,34 +26,35 @@ function StemRow({
   const color = STEM_COLORS[kind]
   return (
     <div
-      className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3 transition-opacity"
-      style={{ opacity: dimmed ? 0.4 : 1 }}
+      className="flex w-40 shrink-0 flex-col justify-center gap-2 px-3 py-2 transition-opacity"
+      style={{ opacity: dimmed ? 0.5 : 1 }}
     >
-      <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
-      <span className="w-16 shrink-0 text-sm font-medium">{STEM_LABELS[kind]}</span>
-
-      <button
-        onClick={onMute}
-        className="w-8 shrink-0 rounded-lg border border-border py-1 text-xs font-semibold"
-        style={{
-          background: controls.muted ? '#ff5c7a' : 'transparent',
-          color: controls.muted ? '#0b0d10' : undefined
-        }}
-        title="Mute"
-      >
-        M
-      </button>
-      <button
-        onClick={onSolo}
-        className="w-8 shrink-0 rounded-lg border border-border py-1 text-xs font-semibold"
-        style={{
-          background: controls.soloed ? color : 'transparent',
-          color: controls.soloed ? '#0b0d10' : undefined
-        }}
-        title="Solo"
-      >
-        S
-      </button>
+      <div className="flex items-center gap-2">
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
+        <span className="flex-1 truncate text-sm font-medium">{STEM_LABELS[kind]}</span>
+        <button
+          onClick={onMute}
+          className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
+          style={{
+            background: controls.muted ? '#ff5c7a' : 'transparent',
+            color: controls.muted ? '#0b0d10' : undefined
+          }}
+          title="Mute"
+        >
+          M
+        </button>
+        <button
+          onClick={onSolo}
+          className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
+          style={{
+            background: controls.soloed ? color : 'transparent',
+            color: controls.soloed ? '#0b0d10' : undefined
+          }}
+          title="Solo"
+        >
+          S
+        </button>
+      </div>
 
       <input
         type="range"
@@ -57,7 +63,7 @@ function StemRow({
         step={0.01}
         value={controls.gain}
         onChange={(e) => onGain(Number(e.target.value))}
-        className="ml-2 flex-1 accent-accent"
+        className="w-full accent-accent"
         aria-label={`${STEM_LABELS[kind]} volume`}
       />
     </div>
