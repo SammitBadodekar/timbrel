@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   PROJECT_FILE,
   PEAKS_FILE,
+  LYRICS_FILE,
   STEMS_DIR,
   stemFilename,
   type StemKind
@@ -38,4 +39,8 @@ export function projectPath(songId: string): string {
 
 export function peaksPath(songId: string): string {
   return join(songDir(songId), PEAKS_FILE)
+}
+
+export function lyricsPath(songId: string): string {
+  return join(songDir(songId), LYRICS_FILE)
 }

@@ -17,6 +17,7 @@ import {
   PEAK_BUCKETS,
   STEM_KINDS,
   type LoopRegion,
+  type Lyrics,
   type ProjectFile,
   type StemKind,
   type TempoKeyState
@@ -82,6 +83,10 @@ interface StudioData {
   tempoKey: TempoKeyState
   loop: LoopRegion | null
 
+  // Synced lyrics (best-effort from LRCLIB); null until fetched or if none found.
+  lyrics: Lyrics | null
+  lyricsLoading: boolean
+
   // Ephemeral practice aids — deliberately not persisted.
   metronome: boolean
   countIn: boolean
@@ -143,6 +148,8 @@ function initialData(): StudioData {
     beatGridOffsetSec: 0,
     tempoKey: { tempoRatio: 1, semitones: 0 },
     loop: null,
+    lyrics: null,
+    lyricsLoading: false,
     metronome: false,
     countIn: false,
     exportOpen: false,
@@ -227,6 +234,12 @@ export const useStudioStore = create<StudioStore>()((set, get) => ({
       }
       if (stale()) return engine.dispose()
       set({ peaks: stemPeaks, loading: false })
+
+      // Lyrics are networked + best-effort — fetch after the studio is interactive.
+      set({ lyricsLoading: true })
+      void window.timbrel.getLyrics(songId).then((lyrics) => {
+        if (!stale()) set({ lyrics, lyricsLoading: false })
+      })
     } catch (err) {
       if (stale()) engine.dispose()
       else set({ error: err instanceof Error ? err.message : String(err), loading: false })

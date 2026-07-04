@@ -7,7 +7,7 @@ interface LibraryProps {
   jobs: Record<string, JobUi>
   busy: boolean
   onUpload: () => void
-  onOpenSpotify: () => void
+  onOpenSearch: () => void
   onOpen: (songId: string) => void
 }
 
@@ -16,7 +16,7 @@ function Library({
   jobs,
   busy,
   onUpload,
-  onOpenSpotify,
+  onOpenSearch,
   onOpen
 }: LibraryProps): React.JSX.Element {
   const jobEntries = Object.entries(jobs)
@@ -30,10 +30,10 @@ function Library({
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={onOpenSpotify}
+            onClick={onOpenSearch}
             className="rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-text"
           >
-            Import from Spotify
+            🔍 Search &amp; download
           </button>
           <button
             onClick={onUpload}

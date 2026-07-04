@@ -7,6 +7,7 @@ import type {
   ExportEncodeSettings,
   ExportFormat,
   LoopRegion,
+  Lyrics,
   MixerState,
   PeaksFile,
   ProjectFile,
@@ -15,7 +16,8 @@ import type {
   SpotifyPlaylist,
   SpotifyTrack,
   StemKind,
-  TempoKeyState
+  TempoKeyState,
+  YtCandidate
 } from '@timbrel/core'
 
 export const IpcChannel = {
@@ -33,14 +35,27 @@ export const IpcChannel = {
   SpotifyStatus: 'spotify:status',
   SpotifyConnect: 'spotify:connect',
   SpotifyDisconnect: 'spotify:disconnect',
+  SpotifySetClientId: 'spotify:setClientId',
+  SpotifyOpenDashboard: 'spotify:openDashboard',
   SpotifyPlaylists: 'spotify:playlists',
   SpotifyPlaylistTracks: 'spotify:playlistTracks',
-  SpotifyLiked: 'spotify:liked'
+  SpotifyLiked: 'spotify:liked',
+  SpotifyImportTrack: 'spotify:importTrack',
+  YoutubeSearch: 'youtube:search',
+  YoutubeImport: 'youtube:import',
+  GetLyrics: 'lyrics:get'
 } as const
 
 export interface StartSeparationInput {
   filePath: string
 }
+
+/**
+ * The stages a job can report. A Spotify import adds two acquisition stages
+ * *before* the sidecar's separation stages (`SeparationStage`); a local upload
+ * only ever reports the latter.
+ */
+export type ImportStage = SeparationStage | 'matching' | 'downloading'
 
 export type StartSeparationResult =
   | { ok: true; songId: string; alreadyExists: boolean }
@@ -66,7 +81,7 @@ export type SeparationEvent =
   | {
       type: 'progress'
       songId: string
-      stage: SeparationStage
+      stage: ImportStage
       progress: number
       message?: string
     }
@@ -146,10 +161,31 @@ export interface TimbrelApi {
   spotifyConnect(): Promise<SpotifyConnection>
   /** Forget the stored Spotify session. */
   spotifyDisconnect(): Promise<void>
+  /** Store the user's own Spotify `client_id` (BYO); returns the fresh status. */
+  spotifySetClientId(clientId: string): Promise<SpotifyConnection>
+  /** Open the Spotify developer dashboard in the system browser. */
+  spotifyOpenDashboard(): Promise<void>
   /** The user's playlists (metadata only). */
   spotifyPlaylists(): Promise<SpotifyPlaylist[]>
   /** Tracks in a playlist (metadata only). */
   spotifyPlaylistTracks(playlistId: string): Promise<SpotifyTrack[]>
   /** The user's liked songs (metadata only). */
   spotifyLikedTracks(): Promise<SpotifyTrack[]>
+  /**
+   * Match a Spotify track on YouTube, download its audio, and feed it into the
+   * separation pipeline. Returns immediately with the song id; progress (match →
+   * download → separate) streams over `onSeparationEvent`, keyed by that id.
+   * (Parked — the Spotify import UI was retired; direct search replaced it.)
+   */
+  spotifyImportTrack(track: SpotifyTrack): Promise<StartSeparationResult>
+  /** Search YouTube for songs (metadata only). */
+  youtubeSearch(query: string): Promise<YtCandidate[]>
+  /**
+   * Download a chosen YouTube result and feed it into the separation pipeline.
+   * Returns immediately with the song id; progress streams over
+   * `onSeparationEvent`, keyed by that id.
+   */
+  youtubeImport(video: YtCandidate): Promise<StartSeparationResult>
+  /** Synced lyrics for a song (cached; best-effort from LRCLIB). */
+  getLyrics(songId: string): Promise<Lyrics | null>
 }

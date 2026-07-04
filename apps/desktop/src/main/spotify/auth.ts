@@ -12,9 +12,10 @@ import {
   SPOTIFY_API_BASE,
   type SpotifyConnection
 } from '@timbrel/core'
-import { CLIENT_ID, SCOPES, REDIRECT_PORTS, redirectUri, AUTH_TIMEOUT_MS } from './config'
+import { SCOPES, REDIRECT_PORTS, redirectUri, AUTH_TIMEOUT_MS } from './config'
 import { createVerifier, challengeFor, createState } from './pkce'
 import { readTokens, writeTokens, clearTokens, type StoredTokens } from './tokens'
+import { getClientId } from './clientId'
 
 interface TokenResponse {
   access_token: string
@@ -28,8 +29,12 @@ interface TokenResponse {
 let connecting: Promise<SpotifyConnection> | null = null
 
 export async function status(): Promise<SpotifyConnection> {
+  const clientId = await getClientId()
+  // No client_id ⇒ the user hasn't done BYO setup; can't use any stored tokens.
+  if (!clientId) return { connected: false, displayName: null, userId: null, clientId: null }
+
   const tokens = await readTokens()
-  if (!tokens) return { connected: false, displayName: null, userId: null }
+  if (!tokens) return { connected: false, displayName: null, userId: null, clientId }
 
   // Backfill the user id for sessions stored before we captured it, so owned
   // playlists are recognized without forcing a reconnect.
@@ -42,13 +47,18 @@ export async function status(): Promise<SpotifyConnection> {
           userId: me.id,
           displayName: me.displayName ?? tokens.displayName
         })
-        return { connected: true, displayName: me.displayName ?? tokens.displayName, userId: me.id }
+        return {
+          connected: true,
+          displayName: me.displayName ?? tokens.displayName,
+          userId: me.id,
+          clientId
+        }
       }
     } catch {
       // Network/refresh hiccup — report connected; ownership detection degrades gracefully.
     }
   }
-  return { connected: true, displayName: tokens.displayName, userId: tokens.userId }
+  return { connected: true, displayName: tokens.displayName, userId: tokens.userId, clientId }
 }
 
 export async function disconnect(): Promise<void> {
@@ -64,6 +74,11 @@ export function connect(): Promise<SpotifyConnection> {
 }
 
 async function runAuthFlow(): Promise<SpotifyConnection> {
+  const clientId = await getClientId()
+  if (!clientId) {
+    throw new Error('Add your Spotify Client ID first (see setup).')
+  }
+
   const verifier = createVerifier()
   const challenge = challengeFor(verifier)
   const state = createState()
@@ -106,7 +121,7 @@ async function runAuthFlow(): Promise<SpotifyConnection> {
   const uri = redirectUri(port)
 
   const authUrl = new URL(SPOTIFY_AUTH_URL)
-  authUrl.searchParams.set('client_id', CLIENT_ID)
+  authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('response_type', 'code')
   authUrl.searchParams.set('redirect_uri', uri)
   authUrl.searchParams.set('scope', SCOPES.join(' '))
@@ -122,7 +137,7 @@ async function runAuthFlow(): Promise<SpotifyConnection> {
   try {
     await shell.openExternal(authUrl.toString())
     const code = await codePromise
-    const token = await exchangeCode(code, verifier, uri)
+    const token = await exchangeCode(code, verifier, uri, clientId)
     const me = await fetchMe(token.access_token)
     const stored: StoredTokens = {
       accessToken: token.access_token,
@@ -132,7 +147,7 @@ async function runAuthFlow(): Promise<SpotifyConnection> {
       userId: me.id
     }
     await writeTokens(stored)
-    return { connected: true, displayName: me.displayName, userId: me.id }
+    return { connected: true, displayName: me.displayName, userId: me.id, clientId }
   } finally {
     clearTimeout(timeout)
     server.close()
@@ -169,7 +184,12 @@ function listenOnFreePort(server: Server): Promise<number> {
   })
 }
 
-async function exchangeCode(code: string, verifier: string, uri: string): Promise<TokenResponse> {
+async function exchangeCode(
+  code: string,
+  verifier: string,
+  uri: string,
+  clientId: string
+): Promise<TokenResponse> {
   const res = await fetch(SPOTIFY_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -177,7 +197,7 @@ async function exchangeCode(code: string, verifier: string, uri: string): Promis
       grant_type: 'authorization_code',
       code,
       redirect_uri: uri,
-      client_id: CLIENT_ID,
+      client_id: clientId,
       code_verifier: verifier
     })
   })
@@ -196,13 +216,19 @@ export async function getAccessToken(): Promise<string> {
   if (!tokens) throw new Error('Not connected to Spotify.')
   if (Date.now() < tokens.expiresAt - 60 * 1000) return tokens.accessToken
 
+  const clientId = await getClientId()
+  if (!clientId) {
+    await clearTokens()
+    throw new Error('Spotify Client ID is not set — please reconnect.')
+  }
+
   const res = await fetch(SPOTIFY_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: tokens.refreshToken,
-      client_id: CLIENT_ID
+      client_id: clientId
     })
   })
   if (!res.ok) {

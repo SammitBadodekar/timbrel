@@ -1,15 +1,17 @@
-import type { SeparationStage } from '@timbrel/core'
+import type { ImportStage } from '@shared/ipc'
 
-/** UI-side view of an in-flight separation job, driven by push events. */
+/** UI-side view of an in-flight job (local separation or Spotify import). */
 export interface JobUi {
-  stage: SeparationStage | 'queued'
+  stage: ImportStage | 'queued'
   progress: number
   message?: string
   error?: string
 }
 
-export const STAGE_LABELS: Record<SeparationStage | 'queued', string> = {
+export const STAGE_LABELS: Record<ImportStage | 'queued', string> = {
   queued: 'Queued',
+  matching: 'Finding audio',
+  downloading: 'Downloading',
   'loading-model': 'Loading model',
   separating: 'Separating stems',
   encoding: 'Encoding FLAC',

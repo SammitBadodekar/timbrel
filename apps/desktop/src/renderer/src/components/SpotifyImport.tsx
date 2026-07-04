@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   isPlaylistReadable,
+  SPOTIFY_REDIRECT_URIS,
   type SpotifyConnection,
   type SpotifyPlaylist,
   type SpotifyTrack
 } from '@timbrel/core'
 import { formatTime } from '../lib/format'
+import { STAGE_LABELS, type JobUi } from '../types'
 
-const DISCONNECTED: SpotifyConnection = { connected: false, displayName: null, userId: null }
+const DISCONNECTED: SpotifyConnection = {
+  connected: false,
+  displayName: null,
+  userId: null,
+  clientId: null
+}
 
 interface SpotifyImportProps {
   onBack: () => void
+  /** Open an imported (separated) song in the studio. */
+  onOpenSong: (songId: string) => void
 }
 
 /** What the track pane is currently showing. */
@@ -21,7 +30,7 @@ function errMsg(e: unknown): string {
   return m.replace(/^Error:\s*/, '')
 }
 
-function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
+function SpotifyImport({ onBack, onOpenSong }: SpotifyImportProps): React.JSX.Element {
   // null = still checking the stored session on mount.
   const [conn, setConn] = useState<SpotifyConnection | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -29,6 +38,13 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [tracks, setTracks] = useState<SpotifyTrack[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // True when the user wants to (re-)enter their Client ID even though one is set.
+  const [editingClientId, setEditingClientId] = useState(false)
+
+  // Import state, keyed by the song id the main process returns per track.
+  const [trackSong, setTrackSong] = useState<Record<string, string>>({})
+  const [jobs, setJobs] = useState<Record<string, JobUi>>({})
+  const [doneSongs, setDoneSongs] = useState<Record<string, true>>({})
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -56,6 +72,31 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
     }
   }, [loadPlaylists])
 
+  // Import progress streams over the same channel as local separation, keyed by
+  // song id. (App.tsx also listens — refreshing the library on `done`.)
+  useEffect(() => {
+    return window.timbrel.onSeparationEvent((event) => {
+      if (event.type === 'progress') {
+        setJobs((j) => ({
+          ...j,
+          [event.songId]: { stage: event.stage, progress: event.progress, message: event.message }
+        }))
+      } else if (event.type === 'done') {
+        setJobs((j) => {
+          const next = { ...j }
+          delete next[event.songId]
+          return next
+        })
+        setDoneSongs((d) => ({ ...d, [event.songId]: true }))
+      } else if (event.type === 'error' && event.songId) {
+        setJobs((j) => ({
+          ...j,
+          [event.songId!]: { stage: 'queued', progress: 0, error: event.message }
+        }))
+      }
+    })
+  }, [])
+
   const handleConnect = useCallback(async () => {
     setError(null)
     setConnecting(true)
@@ -70,12 +111,55 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
     }
   }, [loadPlaylists])
 
+  const handleSaveClientId = useCallback(async (clientId: string) => {
+    setError(null)
+    try {
+      const s = await window.timbrel.spotifySetClientId(clientId)
+      setConn(s)
+      setEditingClientId(false)
+    } catch (e) {
+      setError(errMsg(e))
+    }
+  }, [])
+
   const handleDisconnect = useCallback(async () => {
     await window.timbrel.spotifyDisconnect()
-    setConn(DISCONNECTED)
+    // Keep the configured client_id — only the session is cleared.
+    setConn((c) => ({ ...DISCONNECTED, clientId: c?.clientId ?? null }))
     setPlaylists(null)
     setSelection(null)
     setTracks(null)
+  }, [])
+
+  const handleImport = useCallback(async (track: SpotifyTrack) => {
+    setError(null)
+    // Optimistic: show "queued" the instant the click lands.
+    setTrackSong((m) => (m[track.id] ? m : { ...m, [track.id]: '' }))
+    try {
+      const result = await window.timbrel.spotifyImportTrack(track)
+      if (!result.ok) {
+        setError(errMsg(result.error))
+        setTrackSong((m) => {
+          const next = { ...m }
+          delete next[track.id]
+          return next
+        })
+        return
+      }
+      setTrackSong((m) => ({ ...m, [track.id]: result.songId }))
+      if (result.alreadyExists) {
+        setDoneSongs((d) => ({ ...d, [result.songId]: true }))
+      } else {
+        setJobs((j) => ({ ...j, [result.songId]: { stage: 'queued', progress: 0 } }))
+      }
+    } catch (e) {
+      setError(errMsg(e))
+      setTrackSong((m) => {
+        const next = { ...m }
+        delete next[track.id]
+        return next
+      })
+    }
   }, [])
 
   const openSelection = useCallback(
@@ -149,6 +233,13 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
         <Centered>
           <p className="text-sm text-muted">Checking Spotify…</p>
         </Centered>
+      ) : !conn.clientId || editingClientId ? (
+        <SetupScreen
+          currentClientId={conn.clientId}
+          canCancel={!!conn.clientId}
+          onCancel={() => setEditingClientId(false)}
+          onSave={handleSaveClientId}
+        />
       ) : !conn.connected ? (
         <Centered>
           <p className="text-lg font-medium">Connect your Spotify</p>
@@ -168,11 +259,22 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
               Approve access in the browser tab that just opened.
             </p>
           )}
+          <button
+            onClick={() => setEditingClientId(true)}
+            className="mt-1 text-xs text-muted underline decoration-dotted underline-offset-2 hover:text-text"
+          >
+            Use a different Client ID
+          </button>
         </Centered>
       ) : selection ? (
         <TrackList
           title={selection.kind === 'liked' ? 'Liked Songs' : selection.playlist.name}
           tracks={tracks}
+          trackSong={trackSong}
+          jobs={jobs}
+          doneSongs={doneSongs}
+          onImport={handleImport}
+          onOpenSong={onOpenSong}
           onBack={() => {
             setSelection(null)
             setTracks(null)
@@ -187,6 +289,158 @@ function SpotifyImport({ onBack }: SpotifyImportProps): React.JSX.Element {
 
 function Centered({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <div className="flex flex-1 flex-col items-center justify-center gap-3">{children}</div>
+}
+
+/**
+ * One-time BYO setup: the user registers their own free Spotify app and pastes
+ * its Client ID. Spotify only grants "extended quota" to registered companies
+ * (250k+ MAUs), so a shared app would cap Timbrel at a handful of users — a
+ * personal app has no such cap and is fully within Spotify's terms.
+ */
+function SetupScreen({
+  currentClientId,
+  canCancel,
+  onCancel,
+  onSave
+}: {
+  currentClientId: string | null
+  canCancel: boolean
+  onCancel: () => void
+  onSave: (clientId: string) => void
+}): React.JSX.Element {
+  const [value, setValue] = useState(currentClientId ?? '')
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const copy = (text: string): void => {
+    void navigator.clipboard.writeText(text)
+    setCopied(text)
+    window.setTimeout(() => setCopied((c) => (c === text ? null : c)), 1200)
+  }
+
+  const submit = async (): Promise<void> => {
+    if (!value.trim()) return
+    setSaving(true)
+    try {
+      await onSave(value.trim())
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-4">
+      <div>
+        <p className="text-lg font-medium">Connect Spotify with your own app</p>
+        <p className="mt-1 text-sm text-muted">
+          Spotify requires each app to be registered. Creating your own free app takes about two
+          minutes, has no user limit, and keeps everything under your account — Timbrel never sees a
+          password and only reads metadata.
+        </p>
+      </div>
+
+      <ol className="space-y-4 text-sm">
+        <li className="flex gap-3">
+          <StepNum>1</StepNum>
+          <div className="flex-1">
+            <p>
+              Open the Spotify Developer Dashboard and log in, then click{' '}
+              <span className="font-medium text-text">Create app</span>.
+            </p>
+            <button
+              onClick={() => void window.timbrel.spotifyOpenDashboard()}
+              className="mt-2 rounded-full border border-border px-3 py-1.5 text-xs text-muted hover:border-accent hover:text-text"
+            >
+              Open Spotify Dashboard ↗
+            </button>
+          </div>
+        </li>
+
+        <li className="flex gap-3">
+          <StepNum>2</StepNum>
+          <div className="flex-1">
+            <p>
+              Name it anything (e.g. “Timbrel”). Under{' '}
+              <span className="font-medium text-text">which API/SDKs are you planning to use</span>,
+              tick <span className="font-medium text-text">Web API</span>.
+            </p>
+          </div>
+        </li>
+
+        <li className="flex gap-3">
+          <StepNum>3</StepNum>
+          <div className="flex-1">
+            <p>
+              Add <span className="font-medium text-text">all three</span> Redirect URIs below (they
+              must match exactly), then Save:
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {SPOTIFY_REDIRECT_URIS.map((uri) => (
+                <div
+                  key={uri}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5"
+                >
+                  <code className="flex-1 truncate font-mono text-xs text-text">{uri}</code>
+                  <button
+                    onClick={() => copy(uri)}
+                    className="shrink-0 text-xs text-muted hover:text-accent"
+                  >
+                    {copied === uri ? 'Copied ✓' : 'Copy'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </li>
+
+        <li className="flex gap-3">
+          <StepNum>4</StepNum>
+          <div className="flex-1">
+            <p>
+              Open the app’s <span className="font-medium text-text">Settings</span>, copy the{' '}
+              <span className="font-medium text-text">Client ID</span>, and paste it here:
+            </p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void submit()
+                }}
+                placeholder="e.g. 3a9…f1c"
+                spellCheck={false}
+                autoComplete="off"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text outline-none focus:border-accent"
+              />
+              <button
+                onClick={() => void submit()}
+                disabled={!value.trim() || saving}
+                className="shrink-0 rounded-lg bg-[#1db954] px-4 py-2 text-sm font-semibold text-black hover:bg-[#1ed760] disabled:opacity-60"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              {canCancel && (
+                <button
+                  onClick={onCancel}
+                  className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-text"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  )
+}
+
+function StepNum({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold text-text">
+      {children}
+    </span>
+  )
 }
 
 function PlaylistList({
@@ -267,10 +521,20 @@ function PlaylistList({
 function TrackList({
   title,
   tracks,
+  trackSong,
+  jobs,
+  doneSongs,
+  onImport,
+  onOpenSong,
   onBack
 }: {
   title: string
   tracks: SpotifyTrack[] | null
+  trackSong: Record<string, string>
+  jobs: Record<string, JobUi>
+  doneSongs: Record<string, true>
+  onImport: (track: SpotifyTrack) => void
+  onOpenSong: (songId: string) => void
   onBack: () => void
 }): React.JSX.Element {
   return (
@@ -286,8 +550,8 @@ function TrackList({
       </div>
 
       <div className="mb-3 rounded-xl border border-border bg-surface px-4 py-2.5 text-xs text-muted">
-        Browsing metadata only. Downloading &amp; separating Spotify tracks arrives in the next
-        update.
+        Import finds each track on YouTube, downloads the audio, and separates it into stems
+        locally.
       </div>
 
       {tracks === null ? (
@@ -300,27 +564,107 @@ function TrackList({
         </Centered>
       ) : (
         <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-          {tracks.map((t, i) => (
-            <li
-              key={`${t.id}-${i}`}
-              className="flex items-center gap-4 rounded-xl px-3 py-2 hover:bg-surface"
-            >
-              <span className="w-6 shrink-0 text-right text-xs text-muted">{i + 1}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{t.name}</div>
-                <div className="truncate text-xs text-muted">
-                  {t.artists.join(', ') || 'Unknown artist'}
-                  {t.album ? ` · ${t.album}` : ''}
+          {tracks.map((t, i) => {
+            const songId = trackSong[t.id]
+            const job = songId ? jobs[songId] : undefined
+            const isDone = !!songId && doneSongs[songId]
+            const pending = songId === '' // click landed, awaiting the songId
+            return (
+              <li
+                key={`${t.id}-${i}`}
+                className="flex items-center gap-4 rounded-xl px-3 py-2 hover:bg-surface"
+              >
+                <span className="w-6 shrink-0 text-right text-xs text-muted">{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{t.name}</div>
+                  <div className="truncate text-xs text-muted">
+                    {t.artists.join(', ') || 'Unknown artist'}
+                    {t.album ? ` · ${t.album}` : ''}
+                  </div>
                 </div>
-              </div>
-              <span className="shrink-0 text-xs text-muted">
-                {t.durationSec != null ? formatTime(t.durationSec) : ''}
-              </span>
-            </li>
-          ))}
+                <span className="shrink-0 text-xs text-muted">
+                  {t.durationSec != null ? formatTime(t.durationSec) : ''}
+                </span>
+                <div className="flex w-40 shrink-0 justify-end">
+                  <ImportControl
+                    isDone={isDone}
+                    pending={pending}
+                    job={job}
+                    onImport={() => onImport(t)}
+                    onOpen={() => songId && onOpenSong(songId)}
+                  />
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
+  )
+}
+
+function ImportControl({
+  isDone,
+  pending,
+  job,
+  onImport,
+  onOpen
+}: {
+  isDone: boolean
+  pending: boolean
+  job: JobUi | undefined
+  onImport: () => void
+  onOpen: () => void
+}): React.JSX.Element {
+  if (isDone) {
+    return (
+      <button
+        onClick={onOpen}
+        className="rounded-full border border-accent/50 bg-accent/10 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/20"
+      >
+        Open in studio ↗
+      </button>
+    )
+  }
+
+  if (job?.error) {
+    return (
+      <button
+        onClick={onImport}
+        title={job.error}
+        className="rounded-full border border-stem-vocals/50 px-3 py-1 text-xs font-medium text-stem-vocals hover:bg-stem-vocals/10"
+      >
+        Retry
+      </button>
+    )
+  }
+
+  if (pending || job) {
+    const stage = job ? STAGE_LABELS[job.stage] : 'Queued'
+    const pct = job && job.progress > 0 ? Math.round(job.progress * 100) : null
+    return (
+      <div className="flex w-full flex-col items-end gap-1">
+        <span className="text-[11px] text-muted">
+          {stage}
+          {pct != null ? ` ${pct}%` : ''}
+        </span>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2">
+          <div
+            className="h-full rounded-full bg-accent transition-[width]"
+            style={{ width: pct != null ? `${pct}%` : '15%' }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={onImport}
+      className="rounded-full bg-[#1db954] px-3 py-1 text-xs font-semibold text-black hover:bg-[#1ed760]"
+    >
+      Import
+    </button>
   )
 }
 

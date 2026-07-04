@@ -10,6 +10,13 @@ export type AudioSource =
       isrc: string | null;
       /** YouTube Music match used to actually fetch audio (v0.3). */
       youtubeId: string | null;
+    }
+  | {
+      /** Direct YouTube search + download (ViMusic-style) — the primary import. */
+      type: "youtube";
+      youtubeId: string;
+      /** Uploading channel, kept for provenance. */
+      channel: string | null;
     };
 
 /** Features detected locally in the Python sidecar (librosa → madmom later). */

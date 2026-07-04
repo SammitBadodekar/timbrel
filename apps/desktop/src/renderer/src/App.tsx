@@ -3,13 +3,13 @@ import type { SongSummary } from '@shared/ipc'
 import type { JobUi } from './types'
 import Library from './components/Library'
 import Studio from './components/Studio'
-import SpotifyImport from './components/SpotifyImport'
+import Search from './components/Search'
 
 function App(): React.JSX.Element {
   const [songs, setSongs] = useState<SongSummary[]>([])
   const [jobs, setJobs] = useState<Record<string, JobUi>>({})
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null)
-  const [spotifyOpen, setSpotifyOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const refreshSongs = useCallback(async () => {
@@ -68,12 +68,16 @@ function App(): React.JSX.Element {
     return <Studio songId={selectedSongId} onBack={() => setSelectedSongId(null)} />
   }
 
-  if (spotifyOpen) {
+  if (searchOpen) {
     return (
-      <SpotifyImport
+      <Search
         onBack={() => {
-          setSpotifyOpen(false)
+          setSearchOpen(false)
           void refreshSongs()
+        }}
+        onOpenSong={(songId) => {
+          setSearchOpen(false)
+          setSelectedSongId(songId)
         }}
       />
     )
@@ -85,7 +89,7 @@ function App(): React.JSX.Element {
       jobs={jobs}
       busy={busy}
       onUpload={handleUpload}
-      onOpenSpotify={() => setSpotifyOpen(true)}
+      onOpenSearch={() => setSearchOpen(true)}
       onOpen={setSelectedSongId}
     />
   )

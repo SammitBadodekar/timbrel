@@ -7,10 +7,14 @@ import { mkdir, copyFile, writeFile, readFile } from 'node:fs/promises'
 import {
   createProjectFile,
   emptyFeatures,
+  parseTrackFromYouTube,
   STEM_KINDS,
+  type Lyrics,
   type PeaksFile,
   type ProjectFile,
-  type StemKind
+  type SpotifyTrack,
+  type StemKind,
+  type YtCandidate
 } from '@timbrel/core'
 import {
   IpcChannel,
@@ -22,10 +26,13 @@ import {
 } from '../shared/ipc'
 import type { SidecarManager } from './sidecar/manager'
 import * as songs from './storage/songs'
-import { hashFile, songIdFromHash } from './lib/hash'
-import { songDir, stemsDir, projectPath, peaksPath, stemPath } from './lib/paths'
+import { hashFile, songIdFromHash, songIdFromSpotify, songIdFromYoutube } from './lib/hash'
+import { songDir, stemsDir, projectPath, peaksPath, lyricsPath, stemPath } from './lib/paths'
 import { registerExportIpc } from './export/ipc'
 import { registerSpotifyIpc } from './spotify/ipc'
+import { matchYtTrack } from './spotify/download'
+import { searchYouTube, downloadYtAudio } from './youtube/ytdlp'
+import { fetchLyrics } from './lyrics/lrclib'
 
 export function registerIpc(sidecar: SidecarManager): void {
   registerExportIpc()
@@ -53,6 +60,38 @@ export function registerIpc(sidecar: SidecarManager): void {
         return { ok: false, error: (err as Error).message }
       }
     }
+  )
+
+  ipcMain.handle(
+    IpcChannel.SpotifyImportTrack,
+    async (_event, track: SpotifyTrack): Promise<StartSeparationResult> => {
+      try {
+        return await startSpotifyImport(sidecar, track)
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  ipcMain.handle(IpcChannel.YoutubeSearch, async (_event, query: string) => {
+    const q = query.trim()
+    return q ? searchYouTube(q) : []
+  })
+
+  ipcMain.handle(
+    IpcChannel.YoutubeImport,
+    async (_event, video: YtCandidate): Promise<StartSeparationResult> => {
+      try {
+        return await startYoutubeImport(sidecar, video)
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.GetLyrics,
+    async (_event, songId: string): Promise<Lyrics | null> => getLyrics(songId)
   )
 
   ipcMain.handle(IpcChannel.ListSongs, async () => songs.list())
@@ -132,6 +171,172 @@ async function startSeparation(
   void runSeparationJob(sidecar, songId, originalDest, title)
 
   return { ok: true, songId, alreadyExists: false }
+}
+
+/**
+ * Import a Spotify track: derive a stable id (dedup), then in the background
+ * match it on YouTube, download the audio, and hand off to the same separation
+ * pipeline as a local upload. Returns immediately; progress streams over the
+ * `SeparationEvent` channel keyed by the returned `songId`.
+ */
+async function startSpotifyImport(
+  sidecar: SidecarManager,
+  track: SpotifyTrack
+): Promise<StartSeparationResult> {
+  const songId = songIdFromSpotify({ isrc: track.isrc, spotifyId: track.id })
+  const existing = songs.get(songId)
+
+  // Dedup: the same recording is never re-downloaded or re-separated.
+  if (existing?.separatedAt) {
+    return { ok: true, songId, alreadyExists: true }
+  }
+
+  void runSpotifyImportJob(sidecar, songId, track)
+  return { ok: true, songId, alreadyExists: false }
+}
+
+async function runSpotifyImportJob(
+  sidecar: SidecarManager,
+  songId: string,
+  track: SpotifyTrack
+): Promise<void> {
+  const title = track.name
+  const artist = track.artists.join(', ') || null
+  try {
+    await mkdir(songDir(songId), { recursive: true })
+
+    broadcast({
+      type: 'progress',
+      songId,
+      stage: 'matching',
+      progress: 0,
+      message: 'Finding audio…'
+    })
+    const match = await matchYtTrack(track)
+    if (!match) {
+      throw new Error(`Couldn't find a matching source on YouTube for "${title}".`)
+    }
+
+    broadcast({
+      type: 'progress',
+      songId,
+      stage: 'downloading',
+      progress: 0,
+      message: 'Downloading…'
+    })
+    const originalPath = await downloadYtAudio(match.youtubeId, songDir(songId), (progress) =>
+      broadcast({ type: 'progress', songId, stage: 'downloading', progress })
+    )
+
+    // Record the song before separation so `project.json` carries the Spotify
+    // source. (`runSeparationJob` reads the source back from storage.)
+    if (!songs.get(songId)) {
+      songs.insert({
+        id: songId,
+        title,
+        artist,
+        durationSec: track.durationSec,
+        contentHash: null,
+        source: {
+          type: 'spotify',
+          spotifyId: track.id,
+          isrc: track.isrc,
+          youtubeId: match.youtubeId
+        },
+        features: emptyFeatures(),
+        createdAt: new Date().toISOString(),
+        separatedAt: null
+      })
+    }
+
+    await runSeparationJob(sidecar, songId, originalPath, title)
+  } catch (err) {
+    broadcast({ type: 'error', songId, message: (err as Error).message })
+  }
+}
+
+/**
+ * Import a directly-searched YouTube result: derive a stable id (dedup), then in
+ * the background download the audio and hand off to the same separation pipeline
+ * as a local upload. Returns immediately; progress streams over the
+ * `SeparationEvent` channel keyed by the returned `songId`.
+ */
+async function startYoutubeImport(
+  sidecar: SidecarManager,
+  video: YtCandidate
+): Promise<StartSeparationResult> {
+  if (!video?.id) throw new Error('No video selected.')
+  const songId = songIdFromYoutube(video.id)
+  const existing = songs.get(songId)
+
+  // Dedup: the same video is never re-downloaded or re-separated.
+  if (existing?.separatedAt) {
+    return { ok: true, songId, alreadyExists: true }
+  }
+
+  void runYoutubeImportJob(sidecar, songId, video)
+  return { ok: true, songId, alreadyExists: false }
+}
+
+async function runYoutubeImportJob(
+  sidecar: SidecarManager,
+  songId: string,
+  video: YtCandidate
+): Promise<void> {
+  // Clean the noisy video title into a proper title/artist for the library + lyrics.
+  const { title, artist } = parseTrackFromYouTube(video.title, video.channel)
+  try {
+    await mkdir(songDir(songId), { recursive: true })
+
+    broadcast({
+      type: 'progress',
+      songId,
+      stage: 'downloading',
+      progress: 0,
+      message: 'Downloading…'
+    })
+    const originalPath = await downloadYtAudio(video.id, songDir(songId), (progress) =>
+      broadcast({ type: 'progress', songId, stage: 'downloading', progress })
+    )
+
+    if (!songs.get(songId)) {
+      songs.insert({
+        id: songId,
+        title,
+        artist,
+        durationSec: video.durationSec,
+        contentHash: null,
+        source: { type: 'youtube', youtubeId: video.id, channel: video.channel },
+        features: emptyFeatures(),
+        createdAt: new Date().toISOString(),
+        separatedAt: null
+      })
+    }
+
+    await runSeparationJob(sidecar, songId, originalPath, title)
+  } catch (err) {
+    broadcast({ type: 'error', songId, message: (err as Error).message })
+  }
+}
+
+/** Synced lyrics for a song: cached `lyrics.json`, else fetched from LRCLIB. */
+async function getLyrics(songId: string): Promise<Lyrics | null> {
+  try {
+    return JSON.parse(await readFile(lyricsPath(songId), 'utf8')) as Lyrics
+  } catch {
+    // Not cached yet — fetch from the song's metadata.
+  }
+  const song = songs.get(songId)
+  if (!song) return null
+  const lyrics = await fetchLyrics({
+    title: song.title,
+    artist: song.artist,
+    durationSec: song.durationSec
+  })
+  if (lyrics) {
+    await writeFile(lyricsPath(songId), JSON.stringify(lyrics), 'utf8').catch(() => {})
+  }
+  return lyrics
 }
 
 async function runSeparationJob(

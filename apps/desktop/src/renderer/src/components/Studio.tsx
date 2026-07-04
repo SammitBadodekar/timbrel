@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { STEM_COLORS, transposeKey } from '@timbrel/core'
 import { useStudioStore } from '../store/studioStore'
 import { formatTime } from '../lib/format'
@@ -6,6 +6,7 @@ import StemRow from './StemRow'
 import Waveform from './Waveform'
 import BeatGrid from './BeatGrid'
 import ExportPanel from './ExportPanel'
+import Lyrics from './Lyrics'
 
 interface StudioProps {
   songId: string
@@ -83,6 +84,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement>(null)
   const rulerRef = useRef<HTMLDivElement>(null)
   const loopDrag = useRef<LoopDrag | null>(null)
+  const [lyricsOpen, setLyricsOpen] = useState(false)
 
   const loading = useStudioStore((s) => s.loading)
   const error = useStudioStore((s) => s.error)
@@ -421,94 +423,112 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
               </button>
             </div>
 
-            <button
-              onClick={() => useStudioStore.getState().openExport()}
-              className="ml-auto rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
-              title="Export stems, mixdown, minus-one, or a click track"
-            >
-              Export
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setLyricsOpen((v) => !v)}
+                className="rounded-full border border-border px-3 py-1.5 text-sm font-medium"
+                style={{
+                  background: lyricsOpen ? 'var(--color-accent)' : 'transparent',
+                  color: lyricsOpen ? '#fff' : undefined
+                }}
+                title="Show synced lyrics"
+              >
+                Lyrics
+              </button>
+              <button
+                onClick={() => useStudioStore.getState().openExport()}
+                className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+                title="Export stems, mixdown, minus-one, or a click track"
+              >
+                Export
+              </button>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="relative min-h-full">
-              {/* Loop ruler — drag to create, grab an edge to resize, body to move. */}
-              <div
-                className="absolute top-0 z-10 flex items-center justify-end px-2 text-[10px] uppercase tracking-wide text-muted"
-                style={{ left: 0, width: GUTTER, height: RULER_H }}
-              >
-                Loop
-              </div>
-              <div
-                ref={rulerRef}
-                onPointerDown={onRulerPointerDown}
-                className="absolute top-0 z-10 cursor-pointer border-b border-l border-border bg-surface/60"
-                style={{ left: GUTTER, right: 0, height: RULER_H }}
-                title="Drag to set a loop region"
-              >
-                {loop && (
-                  <div
-                    className="absolute inset-y-0 border-x"
-                    style={{
-                      left: loopStartX,
-                      width: Math.max(1, loopEndX - loopStartX),
-                      background: loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)',
-                      borderColor: loop.enabled ? 'var(--color-accent)' : 'var(--color-border)'
-                    }}
-                  />
-                )}
-                <Playhead variant="ruler" />
-              </div>
-
-              <div style={{ paddingTop: RULER_H }}>
-                {stemKinds.map((kind) => (
-                  <div key={kind} className="flex items-stretch border-b border-border/40">
-                    <StemRow kind={kind} />
+          <div className="flex min-h-0 flex-1">
+            <div className="flex-1 overflow-y-auto">
+              <div className="relative min-h-full">
+                {/* Loop ruler — drag to create, grab an edge to resize, body to move. */}
+                <div
+                  className="absolute top-0 z-10 flex items-center justify-end px-2 text-[10px] uppercase tracking-wide text-muted"
+                  style={{ left: 0, width: GUTTER, height: RULER_H }}
+                >
+                  Loop
+                </div>
+                <div
+                  ref={rulerRef}
+                  onPointerDown={onRulerPointerDown}
+                  className="absolute top-0 z-10 cursor-pointer border-b border-l border-border bg-surface/60"
+                  style={{ left: GUTTER, right: 0, height: RULER_H }}
+                  title="Drag to set a loop region"
+                >
+                  {loop && (
                     <div
-                      className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
-                      onClick={seekFromLane}
-                    >
-                      <Waveform
-                        peaks={peaks[kind] ?? NO_PEAKS}
-                        color={STEM_COLORS[kind]}
-                        dimmed={anySolo && !controls[kind].soloed}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                      className="absolute inset-y-0 border-x"
+                      style={{
+                        left: loopStartX,
+                        width: Math.max(1, loopEndX - loopStartX),
+                        background: loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)',
+                        borderColor: loop.enabled ? 'var(--color-accent)' : 'var(--color-border)'
+                      }}
+                    />
+                  )}
+                  <Playhead variant="ruler" />
+                </div>
 
-              {/* Loop band + beat grid + playhead, spanning only the lane column. */}
-              <div
-                ref={overlayRef}
-                className="pointer-events-none absolute"
-                style={{ top: RULER_H, bottom: 0, left: GUTTER, right: 0 }}
-              >
-                {loop && (
-                  <div
-                    className="absolute inset-y-0"
-                    style={{
-                      left: loopStartX,
-                      width: Math.max(1, loopEndX - loopStartX),
-                      background: loop.enabled ? 'rgba(124,92,255,0.10)' : 'rgba(148,148,148,0.06)',
-                      borderLeft: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`,
-                      borderRight: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`
-                    }}
-                  />
-                )}
-                {hasGrid && (
-                  <BeatGrid
-                    beatTimes={features.beatTimes}
-                    downbeatTimes={features.downbeatTimes}
-                    offsetSec={beatGridOffsetSec}
-                    durationSec={duration}
-                    width={laneW}
-                    height={laneH}
-                  />
-                )}
-                <Playhead variant="lane" />
+                <div style={{ paddingTop: RULER_H }}>
+                  {stemKinds.map((kind) => (
+                    <div key={kind} className="flex items-stretch border-b border-border/40">
+                      <StemRow kind={kind} />
+                      <div
+                        className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
+                        onClick={seekFromLane}
+                      >
+                        <Waveform
+                          peaks={peaks[kind] ?? NO_PEAKS}
+                          color={STEM_COLORS[kind]}
+                          dimmed={anySolo && !controls[kind].soloed}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Loop band + beat grid + playhead, spanning only the lane column. */}
+                <div
+                  ref={overlayRef}
+                  className="pointer-events-none absolute"
+                  style={{ top: RULER_H, bottom: 0, left: GUTTER, right: 0 }}
+                >
+                  {loop && (
+                    <div
+                      className="absolute inset-y-0"
+                      style={{
+                        left: loopStartX,
+                        width: Math.max(1, loopEndX - loopStartX),
+                        background: loop.enabled
+                          ? 'rgba(124,92,255,0.10)'
+                          : 'rgba(148,148,148,0.06)',
+                        borderLeft: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`,
+                        borderRight: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`
+                      }}
+                    />
+                  )}
+                  {hasGrid && (
+                    <BeatGrid
+                      beatTimes={features.beatTimes}
+                      downbeatTimes={features.downbeatTimes}
+                      offsetSec={beatGridOffsetSec}
+                      durationSec={duration}
+                      width={laneW}
+                      height={laneH}
+                    />
+                  )}
+                  <Playhead variant="lane" />
+                </div>
               </div>
             </div>
+            {lyricsOpen && <Lyrics onClose={() => setLyricsOpen(false)} />}
           </div>
 
           {exportOpen && <ExportPanel />}

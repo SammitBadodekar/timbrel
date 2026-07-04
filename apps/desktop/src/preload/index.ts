@@ -16,10 +16,16 @@ const timbrel: TimbrelApi = {
   spotifyStatus: () => ipcRenderer.invoke(IpcChannel.SpotifyStatus),
   spotifyConnect: () => ipcRenderer.invoke(IpcChannel.SpotifyConnect),
   spotifyDisconnect: () => ipcRenderer.invoke(IpcChannel.SpotifyDisconnect),
+  spotifySetClientId: (clientId) => ipcRenderer.invoke(IpcChannel.SpotifySetClientId, clientId),
+  spotifyOpenDashboard: () => ipcRenderer.invoke(IpcChannel.SpotifyOpenDashboard),
   spotifyPlaylists: () => ipcRenderer.invoke(IpcChannel.SpotifyPlaylists),
   spotifyPlaylistTracks: (playlistId) =>
     ipcRenderer.invoke(IpcChannel.SpotifyPlaylistTracks, playlistId),
   spotifyLikedTracks: () => ipcRenderer.invoke(IpcChannel.SpotifyLiked),
+  spotifyImportTrack: (track) => ipcRenderer.invoke(IpcChannel.SpotifyImportTrack, track),
+  youtubeSearch: (query) => ipcRenderer.invoke(IpcChannel.YoutubeSearch, query),
+  youtubeImport: (video) => ipcRenderer.invoke(IpcChannel.YoutubeImport, video),
+  getLyrics: (songId) => ipcRenderer.invoke(IpcChannel.GetLyrics, songId),
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)

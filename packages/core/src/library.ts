@@ -9,6 +9,7 @@
  *     stems/<kind>.flac     the six separated stems
  *     project.json          editable studio state
  *     peaks.json            cached waveform peaks
+ *     lyrics.json           cached synced lyrics (LRCLIB)
  */
 import type { StemKind } from "./stems.js";
 import { STEM_KINDS } from "./stems.js";
@@ -18,6 +19,7 @@ export const STEM_EXT = "flac";
 export const ORIGINAL_BASENAME = "original";
 export const PROJECT_FILE = "project.json";
 export const PEAKS_FILE = "peaks.json";
+export const LYRICS_FILE = "lyrics.json";
 
 export function stemFilename(kind: StemKind): string {
   return `${kind}.${STEM_EXT}`;

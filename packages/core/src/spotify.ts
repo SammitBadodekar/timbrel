@@ -6,13 +6,6 @@
  */
 
 /**
- * The shared, public `client_id` shipped with Timbrel (Exportify model).
- * Safe to be public: PKCE means no client *secret* is ever shipped. See
- * DECISIONS.md for why we accept the Extended-Quota-Mode review this implies.
- */
-export const SPOTIFY_CLIENT_ID = "935b5e17f08b4141bb18f64f8c7372a1";
-
-/**
  * Read-only scopes — browse the user's own playlists + liked songs.
  * `playlist-read-collaborative` lets us read playlists the user collaborates on;
  * Spotify's API only returns tracks for playlists the user OWNS or COLLABORATES
@@ -28,13 +21,38 @@ export const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 export const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
 export const SPOTIFY_API_BASE = "https://api.spotify.com/v1";
 
-/** Whether we hold a valid Spotify session, and who it belongs to. */
+/** Where users register their own Spotify app to get a `client_id` (BYO). */
+export const SPOTIFY_DASHBOARD_URL = "https://developer.spotify.com/dashboard";
+
+/**
+ * Loopback ports we try in order for the OAuth redirect (first free one wins).
+ * Spotify requires the *exact* redirect URI to be registered, so the user must
+ * add **all** of `SPOTIFY_REDIRECT_URIS` to their app. IP literal is required —
+ * `localhost` is disallowed; HTTP is permitted for loopback. Single source of
+ * truth shared by the auth flow (main) and the setup screen (renderer).
+ */
+export const SPOTIFY_REDIRECT_PORTS = [8888, 8889, 8890] as const;
+
+export function spotifyRedirectUri(port: number): string {
+  return `http://127.0.0.1:${port}/callback`;
+}
+
+export const SPOTIFY_REDIRECT_URIS: string[] =
+  SPOTIFY_REDIRECT_PORTS.map(spotifyRedirectUri);
+
+/**
+ * Whether we hold a valid Spotify session, and who it belongs to. `clientId` is
+ * the user's own registered-app id (BYO) — null until they complete setup; the
+ * UI shows the setup screen while it's null.
+ */
 export interface SpotifyConnection {
   connected: boolean;
   /** The account's display name (or id) once connected; null otherwise. */
   displayName: string | null;
   /** The account's Spotify user id — used to tell owned playlists from followed. */
   userId: string | null;
+  /** The user's configured Spotify `client_id`, or null if not set up yet. */
+  clientId: string | null;
 }
 
 /** A playlist in the user's library, trimmed to what the browser UI shows. */
