@@ -1,0 +1,176 @@
+/** Wires the renderer's requests to storage + the sidecar, and pushes
+ *  separation progress back out. The one place the core loop is orchestrated. */
+import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { basename, extname, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { mkdir, copyFile, writeFile, readFile } from 'node:fs/promises'
+import {
+  createProjectFile,
+  emptyFeatures,
+  STEM_KINDS,
+  type ProjectFile,
+  type StemKind
+} from '@timbrel/core'
+import {
+  IpcChannel,
+  type LoadedProject,
+  type SeparationEvent,
+  type StartSeparationInput,
+  type StartSeparationResult
+} from '../shared/ipc'
+import type { SidecarManager } from './sidecar/manager'
+import * as songs from './storage/songs'
+import { hashFile, songIdFromHash } from './lib/hash'
+import { songDir, stemsDir, projectPath, stemPath } from './lib/paths'
+
+export function registerIpc(sidecar: SidecarManager): void {
+  ipcMain.handle(IpcChannel.PickAudio, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Audio',
+          extensions: ['mp3', 'm4a', 'wav', 'flac', 'ogg', 'oga', 'aac', 'aiff', 'aif']
+        }
+      ]
+    })
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+
+  ipcMain.handle(
+    IpcChannel.StartSeparation,
+    async (_event, input: StartSeparationInput): Promise<StartSeparationResult> => {
+      try {
+        return await startSeparation(sidecar, input.filePath)
+      } catch (err) {
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  ipcMain.handle(IpcChannel.ListSongs, async () => songs.list())
+
+  ipcMain.handle(IpcChannel.LoadProject, async (_event, songId: string) =>
+    loadProject(songId)
+  )
+
+  ipcMain.handle(
+    IpcChannel.ReadStem,
+    async (_event, songId: string, kind: StemKind): Promise<ArrayBuffer | null> => {
+      const path = stemPath(songId, kind)
+      if (!existsSync(path)) return null
+      const buf = await readFile(path)
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+    }
+  )
+}
+
+async function startSeparation(
+  sidecar: SidecarManager,
+  filePath: string
+): Promise<StartSeparationResult> {
+  const hash = await hashFile(filePath)
+  const existing = songs.findByHash(hash)
+
+  // Dedup: the same track is never re-separated (DECISIONS.md → Storage).
+  if (existing?.separatedAt) {
+    return { ok: true, songId: existing.id, alreadyExists: true }
+  }
+
+  const songId = existing?.id ?? songIdFromHash(hash)
+  const ext = extname(filePath).slice(1).toLowerCase() || 'audio'
+  const originalDest = join(songDir(songId), `original.${ext}`)
+  const title = basename(filePath, extname(filePath))
+  const now = new Date().toISOString()
+
+  await mkdir(stemsDir(songId), { recursive: true })
+  await copyFile(filePath, originalDest)
+
+  if (!existing) {
+    songs.insert({
+      id: songId,
+      title,
+      artist: null,
+      durationSec: null,
+      contentHash: hash,
+      source: { type: 'local-upload', originalFilename: basename(filePath) },
+      features: emptyFeatures(),
+      createdAt: now,
+      separatedAt: null
+    })
+  }
+
+  // Run in the background; progress streams to the renderer via push events.
+  void runSeparationJob(sidecar, songId, originalDest, title)
+
+  return { ok: true, songId, alreadyExists: false }
+}
+
+async function runSeparationJob(
+  sidecar: SidecarManager,
+  songId: string,
+  inputPath: string,
+  title: string
+): Promise<void> {
+  try {
+    await sidecar.start()
+
+    const done = await sidecar.runSeparation(
+      {
+        jobId: songId,
+        inputPath,
+        outputDir: songDir(songId),
+        model: 'htdemucs_6s',
+        device: 'auto',
+        detectFeatures: true
+      },
+      (event) => {
+        if (event.event === 'progress') {
+          broadcast({
+            type: 'progress',
+            songId,
+            stage: event.stage,
+            progress: event.progress,
+            message: event.message
+          })
+        } else if (event.event === 'stem') {
+          broadcast({ type: 'stem', songId, kind: event.kind, path: event.path })
+        }
+      }
+    )
+
+    const now = new Date().toISOString()
+    songs.markSeparated(songId, done.features, done.durationSec, now)
+
+    const song = songs.get(songId)
+    const project = createProjectFile({
+      songId,
+      title,
+      source: song?.source ?? { type: 'local-upload', originalFilename: title },
+      features: done.features,
+      updatedAt: now
+    })
+    await writeFile(projectPath(songId), JSON.stringify(project, null, 2), 'utf8')
+
+    broadcast({ type: 'done', songId })
+  } catch (err) {
+    broadcast({ type: 'error', songId, message: (err as Error).message })
+  }
+}
+
+async function loadProject(songId: string): Promise<LoadedProject | null> {
+  try {
+    const raw = await readFile(projectPath(songId), 'utf8')
+    const project = JSON.parse(raw) as ProjectFile
+    const stems = STEM_KINDS.filter((kind) => existsSync(stemPath(songId, kind)))
+    return { project, stems }
+  } catch {
+    return null
+  }
+}
+
+function broadcast(event: SeparationEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IpcChannel.SeparationEvent, event)
+  }
+}

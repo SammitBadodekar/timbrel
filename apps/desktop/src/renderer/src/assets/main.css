@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+
+/*
+ * Timbrel studio theme — dark-first, pro-audio (Ableton / Arc / Moises lineage):
+ * deep neutral background, one vivid accent, per-stem color coding.
+ * (The marketing site uses the separate light "Geniestudio" language.)
+ */
+@theme {
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-2: #1b1f26;
+  --color-border: #262b33;
+  --color-text: #e7eaee;
+  --color-muted: #9aa0aa;
+  --color-accent: #7c5cff;
+  --color-accent-hover: #8f74ff;
+
+  --color-stem-vocals: #ff5c7a;
+  --color-stem-drums: #ffab3d;
+  --color-stem-bass: #8b7bff;
+  --color-stem-guitar: #33d69f;
+  --color-stem-piano: #4db8ff;
+  --color-stem-other: #9aa0aa;
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}

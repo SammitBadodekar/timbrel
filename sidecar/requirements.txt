@@ -1,0 +1,14 @@
+# Timbrel sidecar runtime deps.
+#
+# Torch: on macOS the default wheel is MPS-capable (Apple Silicon) and also runs
+# on CPU. For reproducible CPU-only Windows/Linux builds, install torch/torchaudio
+# from the CPU index instead:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# CUDA is a later power-user opt-in (see DECISIONS.md), not part of the base build.
+
+demucs>=4.0.1
+torch>=2.1,<3
+torchaudio>=2.1,<3
+librosa>=0.10
+numpy>=1.24
+soundfile>=0.12

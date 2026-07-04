@@ -1,0 +1,80 @@
+import { useCallback, useEffect, useState } from 'react'
+import type { SongSummary } from '@shared/ipc'
+import type { JobUi } from './types'
+import Library from './components/Library'
+import Studio from './components/Studio'
+
+function App(): React.JSX.Element {
+  const [songs, setSongs] = useState<SongSummary[]>([])
+  const [jobs, setJobs] = useState<Record<string, JobUi>>({})
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refreshSongs = useCallback(async () => {
+    setSongs(await window.timbrel.listSongs())
+  }, [])
+
+  useEffect(() => {
+    void refreshSongs()
+
+    const unsubscribe = window.timbrel.onSeparationEvent((event) => {
+      if (event.type === 'progress') {
+        setJobs((j) => ({
+          ...j,
+          [event.songId]: { stage: event.stage, progress: event.progress, message: event.message }
+        }))
+      } else if (event.type === 'done') {
+        setJobs((j) => {
+          const next = { ...j }
+          delete next[event.songId]
+          return next
+        })
+        void refreshSongs()
+      } else if (event.type === 'error' && event.songId) {
+        setJobs((j) => ({
+          ...j,
+          [event.songId!]: { stage: 'queued', progress: 0, error: event.message }
+        }))
+      }
+    })
+
+    return unsubscribe
+  }, [refreshSongs])
+
+  const handleUpload = useCallback(async () => {
+    setBusy(true)
+    try {
+      const filePath = await window.timbrel.pickAudioFile()
+      if (!filePath) return
+      const result = await window.timbrel.startSeparation({ filePath })
+      if (!result.ok) {
+        window.alert(`Could not start separation: ${result.error}`)
+        return
+      }
+      if (result.alreadyExists) {
+        setSelectedSongId(result.songId)
+        return
+      }
+      setJobs((j) => ({ ...j, [result.songId]: { stage: 'queued', progress: 0 } }))
+      await refreshSongs()
+    } finally {
+      setBusy(false)
+    }
+  }, [refreshSongs])
+
+  if (selectedSongId) {
+    return <Studio songId={selectedSongId} onBack={() => setSelectedSongId(null)} />
+  }
+
+  return (
+    <Library
+      songs={songs}
+      jobs={jobs}
+      busy={busy}
+      onUpload={handleUpload}
+      onOpen={setSelectedSongId}
+    />
+  )
+}
+
+export default App

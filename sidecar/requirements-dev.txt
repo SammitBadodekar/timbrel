@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Freezing the sidecar into a standalone binary (see build.py).
+pyinstaller>=6.6
