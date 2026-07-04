@@ -1,16 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  PEAK_BUCKETS,
-  STEM_COLORS,
-  STEM_KINDS,
-  transposeKey,
-  type LoopRegion,
-  type ProjectFile,
-  type StemKind,
-  type TempoKeyState
-} from '@timbrel/core'
-import type { ProjectPatch } from '@shared/ipc'
-import { StudioEngine, type StemControls } from '../audio/StudioEngine'
+import { useEffect, useRef } from 'react'
+import { STEM_COLORS, transposeKey } from '@timbrel/core'
+import { useStudioStore } from '../store/studioStore'
 import { formatTime } from '../lib/format'
 import StemRow from './StemRow'
 import Waveform from './Waveform'
@@ -46,279 +36,111 @@ type LoopDrag =
   | { mode: 'resize-start' }
   | { mode: 'resize-end' }
 
-function defaultControls(): Record<StemKind, StemControls> {
-  return Object.fromEntries(
-    STEM_KINDS.map((k) => [k, { gain: 1, muted: false, soloed: false }])
-  ) as Record<StemKind, StemControls>
+/**
+ * The moving parts that update every RAF frame live in these leaf components so
+ * the (large) `Studio` shell only re-renders on real user actions — it never
+ * subscribes to `currentTime`.
+ */
+function TransportScrubber(): React.JSX.Element {
+  const currentTime = useStudioStore((s) => s.currentTime)
+  const duration = useStudioStore((s) => s.duration)
+  return (
+    <>
+      <span className="w-12 text-right font-mono text-sm tabular-nums text-muted">
+        {formatTime(currentTime)}
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={0.01}
+        value={currentTime}
+        onChange={(e) => useStudioStore.getState().seek(Number(e.target.value))}
+        className="flex-1 accent-accent"
+        aria-label="Seek"
+      />
+      <span className="w-12 font-mono text-sm tabular-nums text-muted">{formatTime(duration)}</span>
+    </>
+  )
+}
+
+function Playhead({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element {
+  const x = useStudioStore((s) => (s.duration > 0 ? (s.currentTime / s.duration) * s.laneW : 0))
+  return variant === 'ruler' ? (
+    <div
+      className="pointer-events-none absolute top-0 w-px bg-accent"
+      style={{ height: RULER_H, transform: `translateX(${x}px)` }}
+    />
+  ) : (
+    <div
+      className="absolute w-px bg-accent"
+      style={{ top: 0, bottom: 0, transform: `translateX(${x}px)` }}
+    />
+  )
 }
 
 function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
-  const engineRef = useRef<StudioEngine | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const rulerRef = useRef<HTMLDivElement>(null)
-
-  const [project, setProject] = useState<ProjectFile | null>(null)
-  const [stemKinds, setStemKinds] = useState<StemKind[]>([])
-  const [controls, setControls] = useState<Record<StemKind, StemControls>>(defaultControls)
-  const [peaks, setPeaks] = useState<Partial<Record<StemKind, number[]>>>({})
-  const [beatGridOffsetSec, setBeatGridOffsetSec] = useState(0)
-  const [tempoKey, setTempoKey] = useState<TempoKeyState>({ tempoRatio: 1, semitones: 0 })
-  const [loop, setLoop] = useState<LoopRegion | null>(null)
-  const [metronome, setMetronome] = useState(false)
-  const [countIn, setCountIn] = useState(false)
-  // The engine instance the export panel renders against. Captured from the ref
-  // in the Export click handler (never read the ref during render); null = closed.
-  const [exportEngine, setExportEngine] = useState<StudioEngine | null>(null)
-  const [countingIn, setCountingIn] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [playing, setPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [laneW, setLaneW] = useState(0)
-  const [laneH, setLaneH] = useState(0)
-
   const loopDrag = useRef<LoopDrag | null>(null)
 
-  // --- Debounced persistence back to project.json ---------------------------
-  const saveTimer = useRef<number | undefined>(undefined)
-  const pending = useRef<ProjectPatch | null>(null)
-  const didHydrate = useRef(false)
+  const loading = useStudioStore((s) => s.loading)
+  const error = useStudioStore((s) => s.error)
+  const project = useStudioStore((s) => s.project)
+  const stemKinds = useStudioStore((s) => s.stemKinds)
+  const controls = useStudioStore((s) => s.controls)
+  const peaks = useStudioStore((s) => s.peaks)
+  const playing = useStudioStore((s) => s.playing)
+  const countingIn = useStudioStore((s) => s.countingIn)
+  const duration = useStudioStore((s) => s.duration)
+  const beatGridOffsetSec = useStudioStore((s) => s.beatGridOffsetSec)
+  const tempoKey = useStudioStore((s) => s.tempoKey)
+  const loop = useStudioStore((s) => s.loop)
+  const metronome = useStudioStore((s) => s.metronome)
+  const countIn = useStudioStore((s) => s.countIn)
+  const exportOpen = useStudioStore((s) => s.exportOpen)
+  const laneW = useStudioStore((s) => s.laneW)
+  const laneH = useStudioStore((s) => s.laneH)
 
-  const scheduleSave = useCallback(
-    (patch: ProjectPatch) => {
-      pending.current = { ...pending.current, ...patch }
-      window.clearTimeout(saveTimer.current)
-      saveTimer.current = window.setTimeout(() => {
-        const p = pending.current
-        pending.current = null
-        if (p) void window.timbrel.saveProject(songId, p)
-      }, 500)
-    },
-    [songId]
-  )
-
-  // Flush any pending save when leaving the studio.
+  // Load the song into the store on mount; dispose (flush save + tear down the
+  // engine) on unmount. StrictMode's double-invoke is handled by the store's
+  // load token.
   useEffect(() => {
-    return () => {
-      window.clearTimeout(saveTimer.current)
-      if (pending.current) {
-        void window.timbrel.saveProject(songId, pending.current)
-        pending.current = null
-      }
-    }
+    void useStudioStore.getState().load(songId)
+    return () => useStudioStore.getState().dispose()
   }, [songId])
 
-  // --- Load project + decode stems + peaks ----------------------------------
-  useEffect(() => {
-    let cancelled = false
-    didHydrate.current = false
-    const engine = new StudioEngine()
-    engineRef.current = engine
-
-    void (async () => {
-      const loaded = await window.timbrel.loadProject(songId)
-      if (cancelled) return
-      if (!loaded) {
-        setError('Project not found on disk.')
-        setLoading(false)
-        return
-      }
-      setProject(loaded.project)
-
-      const buffers: Partial<Record<StemKind, ArrayBuffer>> = {}
-      await Promise.all(
-        loaded.stems.map(async (kind) => {
-          const bytes = await window.timbrel.getStemBytes(songId, kind)
-          if (bytes) buffers[kind] = bytes
-        })
-      )
-      if (cancelled) return
-
-      const kinds = await engine.loadStems(buffers)
-      if (cancelled) return
-
-      engine.applyMixerState(loaded.project.mixer)
-      engine.applyTempoKey(loaded.project.tempoKey)
-      const savedLoop = loaded.project.loops[0] ?? null
-      engine.setLoop(savedLoop?.enabled ? savedLoop : null)
-      engine.setBeats(
-        loaded.project.features.beatTimes,
-        loaded.project.features.downbeatTimes,
-        loaded.project.beatGridOffsetSec
-      )
-      setStemKinds(kinds)
-      setControls(() => {
-        const next = defaultControls()
-        for (const k of kinds) next[k] = { ...engine.getControls(k) }
-        return next
-      })
-      setBeatGridOffsetSec(loaded.project.beatGridOffsetSec)
-      setTempoKey(loaded.project.tempoKey)
-      setLoop(savedLoop)
-      setDuration(engine.duration)
-
-      // Cached peaks render instantly; otherwise compute once and persist.
-      const cached = await window.timbrel.getPeaks(songId)
-      if (cancelled) return
-      let stemPeaks: Partial<Record<StemKind, number[]>>
-      if (
-        cached &&
-        cached.buckets === PEAK_BUCKETS &&
-        kinds.every((k) => (cached.stems[k]?.length ?? 0) > 0)
-      ) {
-        stemPeaks = cached.stems
-      } else {
-        stemPeaks = engine.computeAllPeaks(PEAK_BUCKETS)
-        void window.timbrel.savePeaks(songId, {
-          version: 1,
-          buckets: PEAK_BUCKETS,
-          durationSec: engine.duration,
-          stems: stemPeaks
-        })
-      }
-      if (cancelled) return
-      setPeaks(stemPeaks)
-      setLoading(false)
-    })().catch((err: unknown) => {
-      if (!cancelled) {
-        setError(err instanceof Error ? err.message : String(err))
-        setLoading(false)
-      }
-    })
-
-    return () => {
-      cancelled = true
-      engine.dispose()
-      engineRef.current = null
-      setExportEngine(null)
-    }
-  }, [songId])
-
-  // Persist mixer / grid offset / tempo-key / loops on change (skip hydration echo).
-  useEffect(() => {
-    if (loading) return
-    if (!didHydrate.current) {
-      didHydrate.current = true
-      return
-    }
-    scheduleSave({ mixer: controls, beatGridOffsetSec, tempoKey, loops: loop ? [loop] : [] })
-  }, [controls, beatGridOffsetSec, tempoKey, loop, loading, scheduleSave])
-
-  // Mirror the enabled loop into the engine so playback wraps at its end.
-  useEffect(() => {
-    engineRef.current?.setLoop(loop?.enabled ? loop : null)
-  }, [loop])
-
-  // Keep the click scheduler's beats aligned with the (nudgeable) grid.
-  useEffect(() => {
-    const f = project?.features
-    engineRef.current?.setBeats(f?.beatTimes ?? [], f?.downbeatTimes ?? [], beatGridOffsetSec)
-  }, [project, beatGridOffsetSec])
-
-  // Metronome on/off is an ephemeral practice aid (not persisted).
-  useEffect(() => {
-    engineRef.current?.setMetronome(metronome)
-  }, [metronome])
-
-  // --- 60fps playhead -------------------------------------------------------
+  // 60fps transport clock: the store's `tick` reflects the engine clock and
+  // drives loop-wrap / end-of-song.
   useEffect(() => {
     let raf = 0
     const tick = (): void => {
-      const engine = engineRef.current
-      if (engine) {
-        setCurrentTime(engine.currentTime)
-        if (engine.isPlaying) {
-          const activeLoop = engine.activeLoop
-          if (activeLoop && engine.currentTime >= activeLoop.endSec) {
-            engine.seek(activeLoop.startSec)
-          } else if (engine.duration > 0 && engine.currentTime >= engine.duration) {
-            engine.handleEnded()
-            setPlaying(false)
-          }
-        }
-      }
+      useStudioStore.getState().tick()
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [])
 
-  // --- Measure the lane region for the overlay (grid + playhead) -------------
+  // Measure the lane region for the overlay (grid + playhead).
   useEffect(() => {
     const el = overlayRef.current
     if (!el) return
-    const update = (): void => {
-      setLaneW(el.clientWidth)
-      setLaneH(el.clientHeight)
-    }
+    const update = (): void =>
+      useStudioStore.getState().setLaneSize(el.clientWidth, el.clientHeight)
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
   }, [loading, stemKinds.length])
 
-  const togglePlay = async (): Promise<void> => {
-    const engine = engineRef.current
-    if (!engine) return
-    if (engine.isPlaying || countingIn) {
-      engine.cancelCountIn()
-      engine.pause()
-      setCountingIn(false)
-      setPlaying(false)
-      return
-    }
-    if (countIn) {
-      // One bar of clicks at the heard tempo, then roll the transport.
-      const bpm = project?.features.bpm
-      const secPerBeat = (bpm ? 60 / bpm : 0.5) / tempoKey.tempoRatio
-      setCountingIn(true)
-      engine.startCountIn(4, secPerBeat, () => {
-        setCountingIn(false)
-        void engine.play().then(() => setPlaying(true))
-      })
-      return
-    }
-    await engine.play()
-    setPlaying(true)
-  }
-
-  const onSeek = (t: number): void => {
-    const clamped = Math.max(0, Math.min(t, duration))
-    engineRef.current?.seek(clamped)
-    setCurrentTime(clamped)
-  }
-
   const seekFromLane = (e: React.MouseEvent<HTMLDivElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
     if (rect.width === 0) return
-    onSeek(((e.clientX - rect.left) / rect.width) * duration)
+    useStudioStore.getState().seek(((e.clientX - rect.left) / rect.width) * duration)
   }
 
-  const onGain = (kind: StemKind, value: number): void => {
-    engineRef.current?.setGain(kind, value)
-    setControls((c) => ({ ...c, [kind]: { ...c[kind], gain: value } }))
-  }
-
-  const onMute = (kind: StemKind): void => {
-    const muted = engineRef.current?.toggleMute(kind) ?? false
-    setControls((c) => ({ ...c, [kind]: { ...c[kind], muted } }))
-  }
-
-  const onSolo = (kind: StemKind): void => {
-    const soloed = engineRef.current?.toggleSolo(kind) ?? false
-    setControls((c) => ({ ...c, [kind]: { ...c[kind], soloed } }))
-  }
-
-  const nudge = (deltaSec: number): void => {
-    setBeatGridOffsetSec((o) => Math.round((o + deltaSec) * 1000) / 1000)
-  }
-
-  const toggleLoop = (): void => {
-    setLoop((l) => (l ? { ...l, enabled: !l.enabled } : l))
-  }
-
-  const clearLoop = (): void => setLoop(null)
+  const nudge = (deltaSec: number): void => useStudioStore.getState().nudge(deltaSec)
 
   // --- Loop ruler drag: create / move / resize a single region --------------
   const timeFromRulerX = (clientX: number): number => {
@@ -332,6 +154,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     const drag = loopDrag.current
     if (!drag) return
     const t = timeFromRulerX(e.clientX)
+    const { setLoop } = useStudioStore.getState()
     if (drag.mode === 'create') {
       // Wait for real movement before minting a region (so a click is a no-op).
       if (drag.id === null) {
@@ -366,7 +189,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const onRulerPointerUp = (): void => {
     window.removeEventListener('pointermove', onRulerPointerMove)
     // A too-short region means it was really a click — clear the loop.
-    setLoop((l) => (l && l.endSec - l.startSec < MIN_LOOP_SEC ? null : l))
+    useStudioStore.getState().setLoop((l) => (l && l.endSec - l.startSec < MIN_LOOP_SEC ? null : l))
     loopDrag.current = null
   }
 
@@ -378,16 +201,17 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     const t = timeFromRulerX(e.clientX)
 
     const create: LoopDrag = { mode: 'create', anchorSec: t, anchorClientX: e.clientX, id: null }
-    if (loop) {
-      const startX = (loop.startSec / duration) * rect.width
-      const endX = (loop.endSec / duration) * rect.width
+    const current = useStudioStore.getState().loop
+    if (current) {
+      const startX = (current.startSec / duration) * rect.width
+      const endX = (current.endSec / duration) * rect.width
       if (Math.abs(px - startX) <= HANDLE_PX) loopDrag.current = { mode: 'resize-start' }
       else if (Math.abs(px - endX) <= HANDLE_PX) loopDrag.current = { mode: 'resize-end' }
       else if (px > startX && px < endX)
         loopDrag.current = {
           mode: 'move',
-          grabOffsetSec: t - loop.startSec,
-          widthSec: loop.endSec - loop.startSec
+          grabOffsetSec: t - current.startSec,
+          widthSec: current.endSec - current.startSec
         }
       else loopDrag.current = create
     } else {
@@ -398,22 +222,12 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     window.addEventListener('pointerup', onRulerPointerUp, { once: true })
   }
 
-  const onTempo = (ratio: number): void => {
-    const clamped = Math.min(1.5, Math.max(0.5, Math.round(ratio * 100) / 100))
-    engineRef.current?.setTempo(clamped)
-    setTempoKey((t) => ({ ...t, tempoRatio: clamped }))
-  }
-
-  const onSemitones = (semitones: number): void => {
-    const clamped = Math.round(Math.min(12, Math.max(-12, semitones)))
-    engineRef.current?.setSemitones(clamped)
-    setTempoKey((t) => ({ ...t, semitones: clamped }))
-  }
+  const onTempo = (ratio: number): void => useStudioStore.getState().setTempo(ratio)
+  const onSemitones = (semitones: number): void => useStudioStore.getState().setSemitones(semitones)
 
   const anySolo = stemKinds.some((k) => controls[k].soloed)
   const features = project?.features
   const hasGrid = !!features && features.beatTimes.length > 0
-  const playheadX = duration > 0 ? (currentTime / duration) * laneW : 0
 
   const loopStartX = loop && duration > 0 ? (loop.startSec / duration) * laneW : 0
   const loopEndX = loop && duration > 0 ? (loop.endSec / duration) * laneW : 0
@@ -450,28 +264,13 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
         <>
           <div className="flex items-center gap-4 border-b border-border px-6 py-4">
             <button
-              onClick={togglePlay}
+              onClick={() => void useStudioStore.getState().togglePlay()}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-lg text-white hover:bg-accent-hover"
               aria-label={countingIn ? 'Cancel count-in' : playing ? 'Pause' : 'Play'}
             >
               {countingIn ? '…' : playing ? '❚❚' : '▶'}
             </button>
-            <span className="w-12 text-right font-mono text-sm tabular-nums text-muted">
-              {formatTime(currentTime)}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.01}
-              value={currentTime}
-              onChange={(e) => onSeek(Number(e.target.value))}
-              className="flex-1 accent-accent"
-              aria-label="Seek"
-            />
-            <span className="w-12 font-mono text-sm tabular-nums text-muted">
-              {formatTime(duration)}
-            </span>
+            <TransportScrubber />
 
             {hasGrid && (
               <div className="flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs text-muted">
@@ -568,7 +367,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
 
             <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
               <button
-                onClick={toggleLoop}
+                onClick={() => useStudioStore.getState().toggleLoop()}
                 disabled={!loop}
                 className="rounded-md px-1.5 py-0.5 font-medium disabled:opacity-40"
                 style={{
@@ -585,7 +384,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                     {formatTime(loop.startSec)}–{formatTime(loop.endSec)}
                   </span>
                   <button
-                    onClick={clearLoop}
+                    onClick={() => useStudioStore.getState().clearLoop()}
                     className="h-5 w-5 rounded-md border border-border leading-none text-muted hover:text-text"
                     title="Clear loop"
                   >
@@ -599,7 +398,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
 
             <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
               <button
-                onClick={() => setMetronome((m) => !m)}
+                onClick={() => useStudioStore.getState().toggleMetronome()}
                 className="rounded-md px-1.5 py-0.5 font-medium"
                 style={{
                   background: metronome ? 'var(--color-accent)' : 'transparent',
@@ -610,7 +409,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                 Metronome
               </button>
               <button
-                onClick={() => setCountIn((c) => !c)}
+                onClick={() => useStudioStore.getState().toggleCountIn()}
                 className="rounded-md px-1.5 py-0.5 font-medium"
                 style={{
                   background: countIn ? 'var(--color-accent)' : 'transparent',
@@ -623,10 +422,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
             </div>
 
             <button
-              onClick={() => {
-                const e = engineRef.current
-                if (e) setExportEngine(e)
-              }}
+              onClick={() => useStudioStore.getState().openExport()}
               className="ml-auto rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
               title="Export stems, mixdown, minus-one, or a click track"
             >
@@ -661,23 +457,13 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                     }}
                   />
                 )}
-                <div
-                  className="pointer-events-none absolute top-0 w-px bg-accent"
-                  style={{ height: RULER_H, transform: `translateX(${playheadX}px)` }}
-                />
+                <Playhead variant="ruler" />
               </div>
 
               <div style={{ paddingTop: RULER_H }}>
                 {stemKinds.map((kind) => (
                   <div key={kind} className="flex items-stretch border-b border-border/40">
-                    <StemRow
-                      kind={kind}
-                      controls={controls[kind]}
-                      dimmed={anySolo && !controls[kind].soloed}
-                      onGain={(v) => onGain(kind, v)}
-                      onMute={() => onMute(kind)}
-                      onSolo={() => onSolo(kind)}
-                    />
+                    <StemRow kind={kind} />
                     <div
                       className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
                       onClick={seekFromLane}
@@ -720,25 +506,12 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                     height={laneH}
                   />
                 )}
-                <div
-                  className="absolute w-px bg-accent"
-                  style={{ top: 0, bottom: 0, transform: `translateX(${playheadX}px)` }}
-                />
+                <Playhead variant="lane" />
               </div>
             </div>
           </div>
 
-          {exportEngine && (
-            <ExportPanel
-              engine={exportEngine}
-              title={project?.title ?? 'export'}
-              stemKinds={stemKinds}
-              controls={controls}
-              tempoKey={tempoKey}
-              hasBeats={hasGrid}
-              onClose={() => setExportEngine(null)}
-            />
-          )}
+          {exportOpen && <ExportPanel />}
         </>
       )}
     </div>

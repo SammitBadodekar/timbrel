@@ -92,6 +92,7 @@ export class StudioEngine {
   private lastScheduledBeat = -Infinity
   private countInTimer: number | null = null
   private countInNodes: OscillatorNode[] = []
+  private disposed = false
   private readonly LOOKAHEAD = 0.1 // schedule clicks this far ahead (s)
   private readonly SCHED_INTERVAL = 25 // scheduler poll period (ms)
 
@@ -506,6 +507,10 @@ export class StudioEngine {
   }
 
   dispose(): void {
+    // Idempotent: a StrictMode remount disposes the engine, then the stale
+    // in-flight load bails and disposes its own (same) engine again.
+    if (this.disposed) return
+    this.disposed = true
     this.stopSources()
     this.stopScheduler()
     this.cancelCountIn()

@@ -1,29 +1,20 @@
-import { STEM_COLORS, STEM_LABELS, type StemKind } from '@timbrel/core'
-import type { StemControls } from '../audio/StudioEngine'
-
-interface StemRowProps {
-  kind: StemKind
-  controls: StemControls
-  dimmed: boolean
-  onGain: (value: number) => void
-  onMute: () => void
-  onSolo: () => void
-}
+import { STEM_COLORS, STEM_KINDS, STEM_LABELS, type StemKind } from '@timbrel/core'
+import { useStudioStore } from '../store/studioStore'
 
 /**
  * The per-stem channel strip: the fixed-width gutter that sits to the left of a
  * waveform lane (color dot, label, mute/solo, volume). Width must match the
  * `GUTTER` constant the studio uses to align the beat-grid/playhead overlay.
+ *
+ * Subscribes to its own slice of the store, so a fader drag re-renders only
+ * this row — not the whole studio.
  */
-function StemRow({
-  kind,
-  controls,
-  dimmed,
-  onGain,
-  onMute,
-  onSolo
-}: StemRowProps): React.JSX.Element {
+function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
+  const controls = useStudioStore((s) => s.controls[kind])
+  const anySolo = useStudioStore((s) => STEM_KINDS.some((k) => s.controls[k].soloed))
+  const dimmed = anySolo && !controls.soloed
   const color = STEM_COLORS[kind]
+
   return (
     <div
       className="flex w-40 shrink-0 flex-col justify-center gap-2 px-3 py-2 transition-opacity"
@@ -33,7 +24,7 @@ function StemRow({
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
         <span className="flex-1 truncate text-sm font-medium">{STEM_LABELS[kind]}</span>
         <button
-          onClick={onMute}
+          onClick={() => useStudioStore.getState().toggleMute(kind)}
           className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
           style={{
             background: controls.muted ? '#ff5c7a' : 'transparent',
@@ -44,7 +35,7 @@ function StemRow({
           M
         </button>
         <button
-          onClick={onSolo}
+          onClick={() => useStudioStore.getState().toggleSolo(kind)}
           className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
           style={{
             background: controls.soloed ? color : 'transparent',
@@ -62,7 +53,7 @@ function StemRow({
         max={1}
         step={0.01}
         value={controls.gain}
-        onChange={(e) => onGain(Number(e.target.value))}
+        onChange={(e) => useStudioStore.getState().setGain(kind, Number(e.target.value))}
         className="w-full accent-accent"
         aria-label={`${STEM_LABELS[kind]} volume`}
       />

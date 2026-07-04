@@ -16,20 +16,10 @@ import {
   type ExportFormat,
   type ExportMode,
   type Mp3Bitrate,
-  type StemKind,
-  type TempoKeyState
+  type StemKind
 } from '@timbrel/core'
 import { StudioEngine, type ExportRenderSpec, type StemControls } from '../audio/StudioEngine'
-
-interface ExportPanelProps {
-  engine: StudioEngine
-  title: string
-  stemKinds: StemKind[]
-  controls: Record<StemKind, StemControls>
-  tempoKey: TempoKeyState
-  hasBeats: boolean
-  onClose: () => void
-}
+import { useStudioStore } from '../store/studioStore'
 
 type ExportStatus =
   | { kind: 'idle' }
@@ -50,15 +40,15 @@ function audibleDefaults(
   return out
 }
 
-function ExportPanel({
-  engine,
-  title,
-  stemKinds,
-  controls,
-  tempoKey,
-  hasBeats,
-  onClose
-}: ExportPanelProps): React.JSX.Element {
+function ExportPanel(): React.JSX.Element | null {
+  const engine = useStudioStore((s) => s.engine)
+  const title = useStudioStore((s) => s.project?.title ?? 'export')
+  const stemKinds = useStudioStore((s) => s.stemKinds)
+  const controls = useStudioStore((s) => s.controls)
+  const tempoKey = useStudioStore((s) => s.tempoKey)
+  const hasBeats = useStudioStore((s) => (s.project?.features.beatTimes.length ?? 0) > 0)
+  const onClose = useStudioStore((s) => s.closeExport)
+
   const [mode, setMode] = useState<ExportMode>('mixdown')
   const [selected, setSelected] = useState<Record<StemKind, boolean>>(() =>
     audibleDefaults(stemKinds, controls)
@@ -123,7 +113,7 @@ function ExportPanel({
   const showStemPicker = mode === 'stems' || mode === 'mixdown'
 
   const runExport = async (): Promise<void> => {
-    if (invalidReason || jobs.length === 0) return
+    if (!engine || invalidReason || jobs.length === 0) return
     const single = jobs.length === 1
 
     const target = await window.timbrel.pickExportTarget(
@@ -168,6 +158,10 @@ function ExportPanel({
   }
 
   const setFormat = (format: ExportFormat): void => setSettings((s) => ({ ...s, format }))
+
+  // The studio only mounts this while an engine exists; the guard satisfies the
+  // type-checker (and is a no-op in practice).
+  if (!engine) return null
 
   return (
     <div
