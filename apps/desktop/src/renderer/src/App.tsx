@@ -15,7 +15,7 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    void refreshSongs()
+    void window.timbrel.listSongs().then(setSongs)
 
     const unsubscribe = window.timbrel.onSeparationEvent((event) => {
       if (event.type === 'progress') {
