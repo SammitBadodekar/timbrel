@@ -7,3 +7,4 @@ export * from "./music.js";
 export * from "./job.js";
 export * from "./sidecar.js";
 export * from "./library.js";
+export * from "./spotify.js";

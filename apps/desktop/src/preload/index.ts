@@ -13,6 +13,13 @@ const timbrel: TimbrelApi = {
   savePeaks: (songId, peaks) => ipcRenderer.invoke(IpcChannel.SavePeaks, songId, peaks),
   pickExportTarget: (input) => ipcRenderer.invoke(IpcChannel.ExportPickTarget, input),
   encodeExport: (input) => ipcRenderer.invoke(IpcChannel.ExportEncode, input),
+  spotifyStatus: () => ipcRenderer.invoke(IpcChannel.SpotifyStatus),
+  spotifyConnect: () => ipcRenderer.invoke(IpcChannel.SpotifyConnect),
+  spotifyDisconnect: () => ipcRenderer.invoke(IpcChannel.SpotifyDisconnect),
+  spotifyPlaylists: () => ipcRenderer.invoke(IpcChannel.SpotifyPlaylists),
+  spotifyPlaylistTracks: (playlistId) =>
+    ipcRenderer.invoke(IpcChannel.SpotifyPlaylistTracks, playlistId),
+  spotifyLikedTracks: () => ipcRenderer.invoke(IpcChannel.SpotifyLiked),
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)

@@ -25,9 +25,11 @@ import * as songs from './storage/songs'
 import { hashFile, songIdFromHash } from './lib/hash'
 import { songDir, stemsDir, projectPath, peaksPath, stemPath } from './lib/paths'
 import { registerExportIpc } from './export/ipc'
+import { registerSpotifyIpc } from './spotify/ipc'
 
 export function registerIpc(sidecar: SidecarManager): void {
   registerExportIpc()
+  registerSpotifyIpc()
 
   ipcMain.handle(IpcChannel.PickAudio, async () => {
     const result = await dialog.showOpenDialog({

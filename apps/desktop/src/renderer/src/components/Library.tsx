@@ -7,28 +7,42 @@ interface LibraryProps {
   jobs: Record<string, JobUi>
   busy: boolean
   onUpload: () => void
+  onOpenSpotify: () => void
   onOpen: (songId: string) => void
 }
 
-function Library({ songs, jobs, busy, onUpload, onOpen }: LibraryProps): React.JSX.Element {
+function Library({
+  songs,
+  jobs,
+  busy,
+  onUpload,
+  onOpenSpotify,
+  onOpen
+}: LibraryProps): React.JSX.Element {
   const jobEntries = Object.entries(jobs)
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-6 py-8">
       <header className="mb-8 flex items-center justify-between">
         <div>
-          <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted">
-            Timbrel
-          </div>
+          <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted">Timbrel</div>
           <h1 className="text-2xl font-semibold">Library</h1>
         </div>
-        <button
-          onClick={onUpload}
-          disabled={busy}
-          className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-        >
-          {busy ? 'Working…' : '+ Add track'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onOpenSpotify}
+            className="rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted hover:border-accent hover:text-text"
+          >
+            Import from Spotify
+          </button>
+          <button
+            onClick={onUpload}
+            disabled={busy}
+            className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            {busy ? 'Working…' : '+ Add track'}
+          </button>
+        </div>
       </header>
 
       {jobEntries.length > 0 && (
@@ -58,8 +72,8 @@ function Library({ songs, jobs, busy, onUpload, onOpen }: LibraryProps): React.J
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p className="text-lg font-medium">No tracks yet</p>
           <p className="max-w-sm text-sm text-muted">
-            Add an audio file to split it into vocals, drums, bass, guitar, piano and
-            other — all on-device.
+            Add an audio file to split it into vocals, drums, bass, guitar, piano and other — all
+            on-device.
           </p>
         </div>
       ) : (

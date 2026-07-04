@@ -11,6 +11,9 @@ import type {
   PeaksFile,
   ProjectFile,
   SeparationStage,
+  SpotifyConnection,
+  SpotifyPlaylist,
+  SpotifyTrack,
   StemKind,
   TempoKeyState
 } from '@timbrel/core'
@@ -26,7 +29,13 @@ export const IpcChannel = {
   ReadPeaks: 'peaks:read',
   SavePeaks: 'peaks:save',
   ExportPickTarget: 'export:pickTarget',
-  ExportEncode: 'export:encode'
+  ExportEncode: 'export:encode',
+  SpotifyStatus: 'spotify:status',
+  SpotifyConnect: 'spotify:connect',
+  SpotifyDisconnect: 'spotify:disconnect',
+  SpotifyPlaylists: 'spotify:playlists',
+  SpotifyPlaylistTracks: 'spotify:playlistTracks',
+  SpotifyLiked: 'spotify:liked'
 } as const
 
 export interface StartSeparationInput {
@@ -131,4 +140,16 @@ export interface TimbrelApi {
   pickExportTarget(input: ExportPickTargetInput): Promise<string | null>
   /** Encode rendered PCM to a file via ffmpeg. */
   encodeExport(input: ExportEncodeInput): Promise<ExportEncodeResult>
+  /** Whether a Spotify session is stored, and whose. */
+  spotifyStatus(): Promise<SpotifyConnection>
+  /** Open the browser consent flow; resolves once connected (rejects on deny/timeout). */
+  spotifyConnect(): Promise<SpotifyConnection>
+  /** Forget the stored Spotify session. */
+  spotifyDisconnect(): Promise<void>
+  /** The user's playlists (metadata only). */
+  spotifyPlaylists(): Promise<SpotifyPlaylist[]>
+  /** Tracks in a playlist (metadata only). */
+  spotifyPlaylistTracks(playlistId: string): Promise<SpotifyTrack[]>
+  /** The user's liked songs (metadata only). */
+  spotifyLikedTracks(): Promise<SpotifyTrack[]>
 }
