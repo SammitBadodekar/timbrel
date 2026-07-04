@@ -2,6 +2,7 @@ export * from "./stems.js";
 export * from "./song.js";
 export * from "./project.js";
 export * from "./peaks.js";
+export * from "./music.js";
 export * from "./job.js";
 export * from "./sidecar.js";
 export * from "./library.js";

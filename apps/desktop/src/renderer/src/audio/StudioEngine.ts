@@ -6,10 +6,15 @@
  * AudioBufferSourceNodes recreated on every play/seek. The playhead is derived
  * from `AudioContext.currentTime` so it stays sample-accurate without React.
  *
- * (v0.2 will insert a single SoundTouch WASM node on the master bus for global
- * real-time tempo/key — see DECISIONS.md → Studio.)
+ * Global real-time tempo/key is a single SoundTouch (WASM AudioWorklet) node on
+ * the master bus (DECISIONS.md → Studio): the summed mix flows through one
+ * `SoundTouchNode`. Tempo is driven by mirroring `playbackRate` on every stem
+ * source and the node (the processor auto-compensates the pitch); key is
+ * `pitchSemitones`. The node is bypassed while neutral to avoid its latency.
  */
 import { computePeaks, type StemKind } from '@timbrel/core'
+import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
+import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
 export interface StemControls {
   gain: number
@@ -28,6 +33,13 @@ export class StudioEngine {
   private startedAtCtxTime = 0
   private offsetSec = 0
   private playing = false
+
+  // Global tempo/key (one SoundTouch node on the master bus).
+  private stNode: SoundTouchNode | null = null
+  private workletReady: Promise<void> | null = null
+  private rate = 1
+  private semitones = 0
+  private routedThroughStretch = false
 
   duration = 0
 
@@ -90,6 +102,83 @@ export class StudioEngine {
     return out
   }
 
+  // --- Global tempo / key ---------------------------------------------------
+
+  get tempoRatio(): number {
+    return this.rate
+  }
+
+  get semitoneShift(): number {
+    return this.semitones
+  }
+
+  /** Restore persisted tempo/key (from `project.json`). */
+  applyTempoKey(state: { tempoRatio: number; semitones: number }): void {
+    this.setTempo(state.tempoRatio)
+    this.setSemitones(state.semitones)
+  }
+
+  /** Change global tempo (1 = original). Smooth: live sources keep playing. */
+  setTempo(ratio: number): void {
+    const clamped = Math.min(1.5, Math.max(0.5, ratio))
+    if (clamped === this.rate) return
+    // Rebase the time origin at the current song position *before* the rate
+    // changes, so `currentTime` stays continuous across the tempo change.
+    if (this.playing) {
+      this.offsetSec = this.currentTime
+      this.startedAtCtxTime = this.ctx.currentTime
+    }
+    this.rate = clamped
+    for (const source of this.sources.values()) {
+      source.playbackRate.value = clamped
+    }
+    if (this.stNode) this.stNode.playbackRate.value = clamped
+    void this.updateRouting()
+  }
+
+  /** Change global key by whole semitones (0 = original). */
+  setSemitones(semitones: number): void {
+    const clamped = Math.round(Math.min(12, Math.max(-12, semitones)))
+    if (clamped === this.semitones) return
+    this.semitones = clamped
+    if (this.stNode) this.stNode.pitchSemitones.value = clamped
+    void this.updateRouting()
+  }
+
+  /** Lazily create + register the SoundTouch node the first time it's needed. */
+  private async ensureStretchNode(): Promise<SoundTouchNode> {
+    if (!this.workletReady) {
+      this.workletReady = SoundTouchNode.register(this.ctx, processorUrl)
+    }
+    await this.workletReady
+    if (!this.stNode) {
+      const node = new SoundTouchNode({ context: this.ctx })
+      node.connect(this.ctx.destination)
+      node.playbackRate.value = this.rate
+      node.pitchSemitones.value = this.semitones
+      this.stNode = node
+    }
+    return this.stNode
+  }
+
+  /** Route the master bus through SoundTouch only when tempo/key is non-neutral. */
+  private async updateRouting(): Promise<void> {
+    const active = this.rate !== 1 || this.semitones !== 0
+    if (active === this.routedThroughStretch) return
+    if (active) {
+      const node = await this.ensureStretchNode()
+      // Guard against a state flip while awaiting registration.
+      if (this.rate === 1 && this.semitones === 0) return
+      this.master.disconnect()
+      this.master.connect(node)
+      this.routedThroughStretch = true
+    } else {
+      this.master.disconnect()
+      this.master.connect(this.ctx.destination)
+      this.routedThroughStretch = false
+    }
+  }
+
   setGain(kind: StemKind, value: number): void {
     const c = this.controls.get(kind)
     if (!c) return
@@ -137,7 +226,9 @@ export class StudioEngine {
 
   get currentTime(): number {
     if (!this.playing) return this.offsetSec
-    const elapsed = this.ctx.currentTime - this.startedAtCtxTime
+    // Song time advances `rate`× faster than wall-clock (tempo is applied via
+    // each source's playbackRate), so scale the elapsed wall time by `rate`.
+    const elapsed = (this.ctx.currentTime - this.startedAtCtxTime) * this.rate
     return Math.min(this.duration, this.offsetSec + elapsed)
   }
 
@@ -154,6 +245,7 @@ export class StudioEngine {
 
   dispose(): void {
     this.stopSources()
+    this.stNode?.disconnect()
     void this.ctx.close()
   }
 
@@ -163,6 +255,7 @@ export class StudioEngine {
     for (const [kind, buffer] of this.buffers) {
       const source = this.ctx.createBufferSource()
       source.buffer = buffer
+      source.playbackRate.value = this.rate
       source.connect(this.gains.get(kind)!)
       source.start(when, fromOffset)
       this.sources.set(kind, source)

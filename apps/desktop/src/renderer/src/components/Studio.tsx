@@ -3,8 +3,10 @@ import {
   PEAK_BUCKETS,
   STEM_COLORS,
   STEM_KINDS,
+  transposeKey,
   type ProjectFile,
-  type StemKind
+  type StemKind,
+  type TempoKeyState
 } from '@timbrel/core'
 import type { ProjectPatch } from '@shared/ipc'
 import { StudioEngine, type StemControls } from '../audio/StudioEngine'
@@ -38,6 +40,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const [controls, setControls] = useState<Record<StemKind, StemControls>>(defaultControls)
   const [peaks, setPeaks] = useState<Partial<Record<StemKind, number[]>>>({})
   const [beatGridOffsetSec, setBeatGridOffsetSec] = useState(0)
+  const [tempoKey, setTempoKey] = useState<TempoKeyState>({ tempoRatio: 1, semitones: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -105,6 +108,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
       if (cancelled) return
 
       engine.applyMixerState(loaded.project.mixer)
+      engine.applyTempoKey(loaded.project.tempoKey)
       setStemKinds(kinds)
       setControls(() => {
         const next = defaultControls()
@@ -112,6 +116,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
         return next
       })
       setBeatGridOffsetSec(loaded.project.beatGridOffsetSec)
+      setTempoKey(loaded.project.tempoKey)
       setDuration(engine.duration)
 
       // Cached peaks render instantly; otherwise compute once and persist.
@@ -150,15 +155,15 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     }
   }, [songId])
 
-  // Persist mixer / grid offset on change (skipping the initial hydration echo).
+  // Persist mixer / grid offset / tempo-key on change (skip the hydration echo).
   useEffect(() => {
     if (loading) return
     if (!didHydrate.current) {
       didHydrate.current = true
       return
     }
-    scheduleSave({ mixer: controls, beatGridOffsetSec })
-  }, [controls, beatGridOffsetSec, loading, scheduleSave])
+    scheduleSave({ mixer: controls, beatGridOffsetSec, tempoKey })
+  }, [controls, beatGridOffsetSec, tempoKey, loading, scheduleSave])
 
   // --- 60fps playhead -------------------------------------------------------
   useEffect(() => {
@@ -235,10 +240,26 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     setBeatGridOffsetSec((o) => Math.round((o + deltaSec) * 1000) / 1000)
   }
 
+  const onTempo = (ratio: number): void => {
+    const clamped = Math.min(1.5, Math.max(0.5, Math.round(ratio * 100) / 100))
+    engineRef.current?.setTempo(clamped)
+    setTempoKey((t) => ({ ...t, tempoRatio: clamped }))
+  }
+
+  const onSemitones = (semitones: number): void => {
+    const clamped = Math.round(Math.min(12, Math.max(-12, semitones)))
+    engineRef.current?.setSemitones(clamped)
+    setTempoKey((t) => ({ ...t, semitones: clamped }))
+  }
+
   const anySolo = stemKinds.some((k) => controls[k].soloed)
   const features = project?.features
   const hasGrid = !!features && features.beatTimes.length > 0
   const playheadX = duration > 0 ? (currentTime / duration) * laneW : 0
+
+  const tempoPct = Math.round((tempoKey.tempoRatio - 1) * 100)
+  const effectiveBpm = features?.bpm ? Math.round(features.bpm * tempoKey.tempoRatio) : null
+  const shiftedKey = transposeKey(features?.key ?? null, tempoKey.semitones)
 
   return (
     <div className="flex h-full flex-col">
@@ -314,6 +335,75 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                 </button>
               </div>
             )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
+            <div className="flex items-center gap-3 rounded-full border border-border px-3 py-1.5 text-xs">
+              <span className="text-muted">Tempo</span>
+              <input
+                type="range"
+                min={0.5}
+                max={1.5}
+                step={0.01}
+                value={tempoKey.tempoRatio}
+                onChange={(e) => onTempo(Number(e.target.value))}
+                className="w-32 accent-accent"
+                aria-label="Tempo"
+              />
+              <span className="w-24 text-right font-mono tabular-nums text-text">
+                {effectiveBpm !== null
+                  ? `${effectiveBpm} BPM`
+                  : `${Math.round(tempoKey.tempoRatio * 100)}%`}
+                <span className="text-muted">
+                  {' '}
+                  ({tempoPct >= 0 ? '+' : ''}
+                  {tempoPct}%)
+                </span>
+              </span>
+              <button
+                onClick={() => onTempo(1)}
+                disabled={tempoKey.tempoRatio === 1}
+                className="rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
+                title="Reset tempo"
+              >
+                ↺
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
+              <span className="text-muted">Key</span>
+              <button
+                onClick={() => onSemitones(tempoKey.semitones - 1)}
+                disabled={tempoKey.semitones <= -12}
+                className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
+                title="Down a semitone"
+              >
+                −
+              </button>
+              <span className="w-10 text-center font-mono tabular-nums text-text">
+                {tempoKey.semitones >= 0 ? '+' : ''}
+                {tempoKey.semitones} st
+              </span>
+              <button
+                onClick={() => onSemitones(tempoKey.semitones + 1)}
+                disabled={tempoKey.semitones >= 12}
+                className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
+                title="Up a semitone"
+              >
+                +
+              </button>
+              {tempoKey.semitones !== 0 && shiftedKey && (
+                <span className="text-muted">→ {shiftedKey}</span>
+              )}
+              <button
+                onClick={() => onSemitones(0)}
+                disabled={tempoKey.semitones === 0}
+                className="ml-0.5 rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
+                title="Reset key"
+              >
+                ↺
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
