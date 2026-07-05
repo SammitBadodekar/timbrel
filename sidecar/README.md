@@ -39,6 +39,13 @@ In dev the Electron app spawns `python -m timbrel_sidecar` from this folder (set
 `TIMBREL_SIDECAR_PY=/path/to/python`); in production it downloads the frozen
 binary on first run.
 
+Each `separate` job runs in a spawned **worker process that exits when done** —
+torch never returns its allocator caches (MPS/CUDA) or import footprint to the
+OS, so an in-process job would leave the long-lived sidecar idling at a multi-GB
+footprint. `tools/memcheck.py` guards this: it runs two separations against the
+real sidecar and fails if the settled footprint drifts above baseline
+(hardware-dependent — run manually, not in CI).
+
 ## Building the frozen binary
 
 ```sh

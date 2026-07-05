@@ -47,6 +47,10 @@ def detect_features(y: np.ndarray, sr: int) -> dict[str, Any]:
 
     y = np.ascontiguousarray(y, dtype=np.float32)
 
+    # NOTE: analysis runs at the native sample rate on purpose. Downsampling to
+    # librosa's canonical 22.05 kHz is ~2-4x faster but was measured to change
+    # BPM/beat output on real songs (tempo-octave flips, beat drift) — not an
+    # acceptable trade for the beat grid. Revisit with the madmom upgrade.
     tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
     beat_times = librosa.frames_to_time(beats, sr=sr)
     beat_list = [round(float(t), 4) for t in beat_times]

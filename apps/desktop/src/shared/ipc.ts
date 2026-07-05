@@ -27,7 +27,6 @@ export const IpcChannel = {
   ListSongs: 'library:list',
   LoadProject: 'project:load',
   SaveProject: 'project:save',
-  ReadStem: 'stem:bytes',
   ReadPeaks: 'peaks:read',
   SavePeaks: 'peaks:save',
   ExportPickTarget: 'export:pickTarget',
@@ -145,8 +144,6 @@ export interface TimbrelApi {
   loadProject(songId: string): Promise<LoadedProject | null>
   /** Merge editable studio state into `project.json`. */
   saveProject(songId: string, patch: ProjectPatch): Promise<void>
-  /** Raw FLAC bytes for a stem, for Web Audio `decodeAudioData`. */
-  getStemBytes(songId: string, kind: StemKind): Promise<ArrayBuffer | null>
   /** Cached waveform peaks, or null if not computed yet. */
   getPeaks(songId: string): Promise<PeaksFile | null>
   /** Persist computed waveform peaks for instant re-render next time. */

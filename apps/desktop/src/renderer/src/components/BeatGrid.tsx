@@ -32,8 +32,12 @@ function BeatGridBase({
     const canvas = canvasRef.current
     if (!canvas || !width || !height || !durationSec) return
     const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.round(width * dpr)
-    canvas.height = Math.round(height * dpr)
+    // Skip the width/height assignment when unchanged (e.g. a grid nudge):
+    // it clears + reallocates the backing store; clearRect below is enough.
+    const bw = Math.round(width * dpr)
+    const bh = Math.round(height * dpr)
+    if (canvas.width !== bw) canvas.width = bw
+    if (canvas.height !== bh) canvas.height = bh
     canvas.style.width = `${width}px`
     canvas.style.height = `${height}px`
 

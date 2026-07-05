@@ -13,11 +13,11 @@ import {
   type PeaksFile,
   type ProjectFile,
   type SpotifyTrack,
-  type StemKind,
   type YtCandidate
 } from '@timbrel/core'
 import {
   IpcChannel,
+  type ImportStage,
   type LoadedProject,
   type ProjectPatch,
   type SeparationEvent,
@@ -101,16 +101,6 @@ export function registerIpc(sidecar: SidecarManager): void {
   ipcMain.handle(
     IpcChannel.SaveProject,
     async (_event, songId: string, patch: ProjectPatch): Promise<void> => saveProject(songId, patch)
-  )
-
-  ipcMain.handle(
-    IpcChannel.ReadStem,
-    async (_event, songId: string, kind: StemKind): Promise<ArrayBuffer | null> => {
-      const path = stemPath(songId, kind)
-      if (!existsSync(path)) return null
-      const buf = await readFile(path)
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-    }
   )
 
   ipcMain.handle(
@@ -205,27 +195,15 @@ async function runSpotifyImportJob(
   try {
     await mkdir(songDir(songId), { recursive: true })
 
-    broadcast({
-      type: 'progress',
-      songId,
-      stage: 'matching',
-      progress: 0,
-      message: 'Finding audio…'
-    })
+    broadcastProgress(songId, 'matching', 0, 'Finding audio…')
     const match = await matchYtTrack(track)
     if (!match) {
       throw new Error(`Couldn't find a matching source on YouTube for "${title}".`)
     }
 
-    broadcast({
-      type: 'progress',
-      songId,
-      stage: 'downloading',
-      progress: 0,
-      message: 'Downloading…'
-    })
+    broadcastProgress(songId, 'downloading', 0, 'Downloading…')
     const originalPath = await downloadYtAudio(match.youtubeId, songDir(songId), (progress) =>
-      broadcast({ type: 'progress', songId, stage: 'downloading', progress })
+      broadcastProgress(songId, 'downloading', progress)
     )
 
     // Record the song before separation so `project.json` carries the Spotify
@@ -288,15 +266,9 @@ async function runYoutubeImportJob(
   try {
     await mkdir(songDir(songId), { recursive: true })
 
-    broadcast({
-      type: 'progress',
-      songId,
-      stage: 'downloading',
-      progress: 0,
-      message: 'Downloading…'
-    })
+    broadcastProgress(songId, 'downloading', 0, 'Downloading…')
     const originalPath = await downloadYtAudio(video.id, songDir(songId), (progress) =>
-      broadcast({ type: 'progress', songId, stage: 'downloading', progress })
+      broadcastProgress(songId, 'downloading', progress)
     )
 
     if (!songs.get(songId)) {
@@ -359,13 +331,7 @@ async function runSeparationJob(
       },
       (event) => {
         if (event.event === 'progress') {
-          broadcast({
-            type: 'progress',
-            songId,
-            stage: event.stage,
-            progress: event.progress,
-            message: event.message
-          })
+          broadcastProgress(songId, event.stage, event.progress, event.message)
         } else if (event.event === 'stem') {
           broadcast({ type: 'stem', songId, kind: event.kind, path: event.path })
         }
@@ -383,18 +349,30 @@ async function runSeparationJob(
       features: done.features,
       updatedAt: now
     })
+    projectCache.set(songId, project)
     await writeFile(projectPath(songId), JSON.stringify(project, null, 2), 'utf8')
 
+    clearProgress(songId)
     broadcast({ type: 'done', songId })
   } catch (err) {
+    clearProgress(songId)
     broadcast({ type: 'error', songId, message: (err as Error).message })
   }
 }
+
+/**
+ * Session cache of parsed projects, keyed by songId. The debounced studio save
+ * fires every ~500 ms during mixing, and the file embeds the (large, immutable)
+ * beat arrays — re-reading and re-parsing it per save is pure waste. Main is
+ * the only writer, so the cache can't go stale.
+ */
+const projectCache = new Map<string, ProjectFile>()
 
 async function loadProject(songId: string): Promise<LoadedProject | null> {
   try {
     const raw = await readFile(projectPath(songId), 'utf8')
     const project = JSON.parse(raw) as ProjectFile
+    projectCache.set(songId, project)
     const stems = STEM_KINDS.filter((kind) => existsSync(stemPath(songId, kind)))
     return { project, stems }
   } catch {
@@ -404,11 +382,13 @@ async function loadProject(songId: string): Promise<LoadedProject | null> {
 
 /** Merge the editable subset of a project back onto disk. No-op if missing. */
 async function saveProject(songId: string, patch: ProjectPatch): Promise<void> {
-  let project: ProjectFile
-  try {
-    project = JSON.parse(await readFile(projectPath(songId), 'utf8')) as ProjectFile
-  } catch {
-    return // project.json not written yet (e.g. separation still running)
+  let project = projectCache.get(songId)
+  if (!project) {
+    try {
+      project = JSON.parse(await readFile(projectPath(songId), 'utf8')) as ProjectFile
+    } catch {
+      return // project.json not written yet (e.g. separation still running)
+    }
   }
   const next: ProjectFile = {
     ...project,
@@ -420,11 +400,39 @@ async function saveProject(songId: string, patch: ProjectPatch): Promise<void> {
       : {}),
     updatedAt: new Date().toISOString()
   }
+  projectCache.set(songId, next)
   await writeFile(projectPath(songId), JSON.stringify(next, null, 2), 'utf8')
 }
 
 function broadcast(event: SeparationEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(IpcChannel.SeparationEvent, event)
+  }
+}
+
+/**
+ * Progress arrives much faster than it's useful (yt-dlp prints many lines per
+ * second, and every forwarded event is an IPC serialize + a renderer render),
+ * so per song+stage only whole-percent changes are forwarded. Terminal events
+ * (`stem`/`done`/`error`) don't pass through here and are never dropped.
+ */
+const lastProgressPct = new Map<string, number>()
+
+function broadcastProgress(
+  songId: string,
+  stage: ImportStage,
+  progress: number,
+  message?: string
+): void {
+  const key = `${songId}:${stage}`
+  const pct = Math.floor(progress * 100)
+  if (lastProgressPct.get(key) === pct && progress < 1) return
+  lastProgressPct.set(key, pct)
+  broadcast({ type: 'progress', songId, stage, progress, message })
+}
+
+function clearProgress(songId: string): void {
+  for (const key of lastProgressPct.keys()) {
+    if (key.startsWith(`${songId}:`)) lastProgressPct.delete(key)
   }
 }

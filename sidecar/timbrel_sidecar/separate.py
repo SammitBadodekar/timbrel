@@ -8,6 +8,7 @@ normalize-before / denormalize-after recipe from `demucs.separate`.
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 from . import emit
@@ -15,6 +16,52 @@ from .features import detect_features
 
 # Canonical display order (matches @timbrel/core STEM_KINDS).
 STEM_ORDER = ["vocals", "drums", "bass", "guitar", "piano", "other"]
+
+# Mirror of @timbrel/core peaks.ts PEAK_BUCKETS.
+PEAK_BUCKETS = 2000
+
+
+def _compute_peaks(tensor, buckets: int = PEAK_BUCKETS) -> list[float]:
+    """Bucketed max-|sample| envelope of a (channels, frames) tensor.
+
+    Mirrors @timbrel/core `computePeaks` — same bucket boundaries and JS
+    `Math.round` semantics — so a sidecar-written peaks.json is interchangeable
+    with the renderer's fallback computation.
+    """
+    import numpy as np
+
+    env = np.abs(tensor.numpy()).max(axis=0)
+    frames = env.shape[0]
+    if frames == 0:
+        return [0.0] * buckets
+
+    step = frames / buckets
+    starts = (np.arange(buckets) * step).astype(np.int64)
+    ends = np.empty(buckets, dtype=np.int64)
+    ends[:-1] = (np.arange(1, buckets) * step).astype(np.int64)
+    ends[-1] = frames
+
+    peaks = np.maximum.reduceat(env, starts).astype(np.float64)
+    peaks[ends <= starts] = 0.0  # empty bucket (only when frames < buckets)
+    peaks = np.minimum(peaks, 1.0)
+    peaks = np.floor(peaks * 1000 + 0.5) / 1000  # JS Math.round half-up
+    return peaks.tolist()
+
+
+def _write_peaks_file(sources, name_to_index, names, samplerate, output_dir) -> None:
+    """Write peaks.json next to project.json so even the first studio open of a
+    fresh import reads cached peaks instead of re-scanning decoded stems."""
+    import json
+
+    frames = int(sources.shape[-1])
+    peaks = {
+        "version": 1,
+        "buckets": PEAK_BUCKETS,
+        "durationSec": frames / float(samplerate),
+        "stems": {n: _compute_peaks(sources[name_to_index[n]]) for n in names},
+    }
+    with open(os.path.join(output_dir, "peaks.json"), "w") as f:
+        json.dump(peaks, f, separators=(",", ":"))
 
 
 def resolve_device(requested: Optional[str]) -> str:
@@ -110,26 +157,55 @@ def run_separation(req: dict[str, Any]) -> None:
     stems_dir = os.path.join(output_dir, "stems")
     os.makedirs(stems_dir, exist_ok=True)
 
-    available = [name for name in STEM_ORDER if name in name_to_index]
-    paths: dict[str, str] = {}
-    for idx, name in enumerate(available):
-        emit.progress(job_id, "encoding", idx / len(available), f"Encoding {name}")
-        out_path = os.path.join(stems_dir, f"{name}.flac")
-        _save_flac(sources[name_to_index[name]], out_path, samplerate)
-        paths[name] = out_path
-        emit.stem(job_id, name, out_path)
+    no_features = {"bpm": None, "key": None, "beatTimes": [], "downbeatTimes": []}
 
-    duration = float(wav.shape[-1]) / float(samplerate)
-
-    if req.get("detectFeatures", True):
-        emit.progress(job_id, "detecting-features", 0.0, "Detecting tempo & key")
+    # Feature detection only needs the original mix, so it runs concurrently
+    # with stem encoding (librosa/numpy release the GIL for the heavy parts).
+    def detect() -> dict[str, Any]:
         try:
             mono = wav.mean(0).cpu().numpy()
-            features = detect_features(mono, samplerate)
+            return detect_features(mono, samplerate)
         except Exception as exc:
             emit.log("warn", f"feature detection failed: {exc}")
-            features = {"bpm": None, "key": None, "beatTimes": [], "downbeatTimes": []}
-    else:
-        features = {"bpm": None, "key": None, "beatTimes": [], "downbeatTimes": []}
+            return no_features
 
+    available = [name for name in STEM_ORDER if name in name_to_index]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        features_future = (
+            pool.submit(detect) if req.get("detectFeatures", True) else None
+        )
+        peaks_future = pool.submit(
+            _write_peaks_file, sources, name_to_index, available, samplerate, output_dir
+        )
+        stems_dir_futures = {
+            pool.submit(
+                _save_flac,
+                sources[name_to_index[name]],
+                os.path.join(stems_dir, f"{name}.flac"),
+                samplerate,
+            ): name
+            for name in available
+        }
+        paths: dict[str, str] = {}
+        for done_count, future in enumerate(as_completed(stems_dir_futures), 1):
+            name = stems_dir_futures[future]
+            future.result()  # re-raise encode errors
+            out_path = os.path.join(stems_dir, f"{name}.flac")
+            paths[name] = out_path
+            emit.progress(
+                job_id, "encoding", done_count / len(available), f"Encoded {name}"
+            )
+            emit.stem(job_id, name, out_path)
+
+        try:
+            peaks_future.result()
+        except Exception as exc:  # peaks are a cache — never fail the job
+            emit.log("warn", f"peaks generation failed: {exc}")
+
+        if features_future is not None and not features_future.done():
+            emit.progress(job_id, "detecting-features", 0.0, "Detecting tempo & key")
+        features = features_future.result() if features_future else no_features
+
+    duration = float(wav.shape[-1]) / float(samplerate)
     emit.done(job_id, paths, features, duration)

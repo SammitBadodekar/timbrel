@@ -25,7 +25,10 @@ export function initDb(): Database.Database {
       created_at   TEXT NOT NULL,
       separated_at TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_songs_hash ON songs(content_hash);
+    -- content_hash's UNIQUE constraint already provides an index; the explicit
+    -- idx_songs_hash created by earlier versions was a duplicate maintained on
+    -- every write for no read benefit.
+    DROP INDEX IF EXISTS idx_songs_hash;
 
     CREATE TABLE IF NOT EXISTS jobs (
       id         TEXT PRIMARY KEY,

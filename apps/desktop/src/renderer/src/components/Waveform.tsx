@@ -25,8 +25,12 @@ function WaveformBase({ peaks, color, dimmed }: WaveformProps): React.JSX.Elemen
       const h = wrap.clientHeight
       if (!w || !h) return
       const dpr = window.devicePixelRatio || 1
-      canvas.width = Math.round(w * dpr)
-      canvas.height = Math.round(h * dpr)
+      // Assigning width/height clears + reallocates the backing store even when
+      // the value is unchanged — skip it (clearRect below wipes the pixels).
+      const bw = Math.round(w * dpr)
+      const bh = Math.round(h * dpr)
+      if (canvas.width !== bw) canvas.width = bw
+      if (canvas.height !== bh) canvas.height = bh
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
 
@@ -54,9 +58,21 @@ function WaveformBase({ peaks, color, dimmed }: WaveformProps): React.JSX.Elemen
     }
 
     draw()
-    const ro = new ResizeObserver(draw)
+    // Resize callbacks outpace frames during a window-edge drag; coalesce all
+    // six lanes' redraws to at most one per animation frame each.
+    let raf = 0
+    const ro = new ResizeObserver(() => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        draw()
+      })
+    })
     ro.observe(wrap)
-    return () => ro.disconnect()
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
   }, [peaks, color])
 
   return (

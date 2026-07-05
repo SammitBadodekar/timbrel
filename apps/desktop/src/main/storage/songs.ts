@@ -29,18 +29,15 @@ function toSong(row: SongRow): Song {
   }
 }
 
-function toSummary(row: SongRow): SongSummary {
-  const features: DetectedFeatures = JSON.parse(row.features_json)
-  return {
-    id: row.id,
-    title: row.title,
-    artist: row.artist,
-    durationSec: row.duration_sec,
-    bpm: features.bpm,
-    key: features.key,
-    separated: row.separated_at != null,
-    createdAt: row.created_at
-  }
+interface SummaryRow {
+  id: string
+  title: string
+  artist: string | null
+  duration_sec: number | null
+  bpm: number | null
+  key: string | null
+  created_at: string
+  separated_at: string | null
 }
 
 export function insert(song: Song): void {
@@ -65,24 +62,38 @@ export function insert(song: Song): void {
 }
 
 export function findByHash(hash: string): Song | null {
-  const row = getDb()
-    .prepare('SELECT * FROM songs WHERE content_hash = ?')
-    .get(hash) as SongRow | undefined
+  const row = getDb().prepare('SELECT * FROM songs WHERE content_hash = ?').get(hash) as
+    | SongRow
+    | undefined
   return row ? toSong(row) : null
 }
 
 export function get(id: string): Song | null {
-  const row = getDb()
-    .prepare('SELECT * FROM songs WHERE id = ?')
-    .get(id) as SongRow | undefined
+  const row = getDb().prepare('SELECT * FROM songs WHERE id = ?').get(id) as SongRow | undefined
   return row ? toSong(row) : null
 }
 
 export function list(): SongSummary[] {
+  // bpm/key are pulled straight out of the JSON column so the (large, per-song)
+  // beat arrays inside features_json are never read or parsed for the list.
   const rows = getDb()
-    .prepare('SELECT * FROM songs ORDER BY created_at DESC')
-    .all() as SongRow[]
-  return rows.map(toSummary)
+    .prepare(
+      `SELECT id, title, artist, duration_sec, created_at, separated_at,
+              json_extract(features_json, '$.bpm') AS bpm,
+              json_extract(features_json, '$.key') AS "key"
+         FROM songs ORDER BY created_at DESC`
+    )
+    .all() as SummaryRow[]
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    artist: row.artist,
+    durationSec: row.duration_sec,
+    bpm: row.bpm,
+    key: row.key,
+    separated: row.separated_at != null,
+    createdAt: row.created_at
+  }))
 }
 
 export function markSeparated(

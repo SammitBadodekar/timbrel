@@ -89,7 +89,10 @@ export class StudioEngine {
   private downbeatSet = new Set<number>()
   private gridOffset = 0
   private schedulerId: number | null = null
-  private lastScheduledBeat = -Infinity
+  /** Cursor into `beatTimes` for the click scheduler — beats are sorted, so
+   *  each tick resumes where the last stopped instead of rescanning from 0.
+   *  Reset to 0 on seek / tempo change / scheduler start. */
+  private nextBeatIdx = 0
   private countInTimer: number | null = null
   private countInNodes: OscillatorNode[] = []
   private disposed = false
@@ -280,7 +283,7 @@ export class StudioEngine {
     if (this.stNode) this.stNode.playbackRate.value = clamped
     // Upcoming beats must be re-timed for the new rate (already-scheduled
     // clicks in the ~100 ms window keep their old timing — negligible drift).
-    this.lastScheduledBeat = -Infinity
+    this.nextBeatIdx = 0
     void this.updateRouting()
   }
 
@@ -359,7 +362,7 @@ export class StudioEngine {
 
   private startScheduler(): void {
     if (this.schedulerId != null) return
-    this.lastScheduledBeat = -Infinity
+    this.nextBeatIdx = 0
     this.schedulerId = window.setInterval(() => this.scheduleClicks(), this.SCHED_INTERVAL)
   }
 
@@ -373,7 +376,7 @@ export class StudioEngine {
    * Lookahead scheduler: each tick, queue every beat whose wall-clock time falls
    * in the next `LOOKAHEAD` window. Beat song-time `t + gridOffset` maps to
    * wall-clock via the transport clock (`startedAtCtxTime`/`offsetSec`/`rate`),
-   * so clicks track tempo and the nudge. `lastScheduledBeat` (reset on any
+   * so clicks track tempo and the nudge. `nextBeatIdx` (reset on any
    * seek/tempo change) prevents double-scheduling as the window advances.
    */
   private scheduleClicks(): void {
@@ -382,15 +385,15 @@ export class StudioEngine {
     const windowEnd = now + this.LOOKAHEAD
     // Never click at/after the loop end — playback wraps there.
     const limit = this.loop ? this.loop.endSec : this.duration
-    for (let i = 0; i < this.beatTimes.length; i++) {
-      const songTime = this.beatTimes[i] + this.gridOffset
-      if (songTime <= this.lastScheduledBeat) continue
-      if (songTime >= limit) break
+    while (this.nextBeatIdx < this.beatTimes.length) {
+      const beat = this.beatTimes[this.nextBeatIdx]
+      const songTime = beat + this.gridOffset
+      if (songTime >= limit) return
       const at = this.startedAtCtxTime + (songTime - this.offsetSec) / this.rate
-      if (at > windowEnd) break // beats are sorted — nothing else is in range
-      this.lastScheduledBeat = songTime
+      if (at > windowEnd) return // beats are sorted — nothing else is in range
+      this.nextBeatIdx++
       if (at < now) continue // already elapsed — skip, but don't revisit
-      this.click(at, this.downbeatSet.has(this.beatTimes[i]))
+      this.click(at, this.downbeatSet.has(beat))
     }
   }
 
@@ -482,7 +485,7 @@ export class StudioEngine {
     const clamped = Math.max(0, Math.min(seconds, this.duration))
     this.offsetSec = clamped
     // Post-seek beats must be (re)scheduled from the new position.
-    this.lastScheduledBeat = -Infinity
+    this.nextBeatIdx = 0
     if (this.playing) this.startSources(clamped)
   }
 

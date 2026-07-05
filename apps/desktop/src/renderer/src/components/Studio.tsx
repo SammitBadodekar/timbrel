@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { STEM_COLORS, transposeKey } from '@timbrel/core'
+import { STEM_COLORS, transposeKey, type StemKind } from '@timbrel/core'
 import { useStudioStore } from '../store/studioStore'
 import { formatTime } from '../lib/format'
 import StemRow from './StemRow'
@@ -80,24 +80,197 @@ function Playhead({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element
   )
 }
 
+/**
+ * One lane's waveform. Subscribes to only its own peaks + solo state, so a
+ * fader drag or solo toggle re-renders the affected lanes — never the whole
+ * Studio shell (which deliberately does not subscribe to `controls`/`peaks`).
+ */
+function LaneWaveform({ kind }: { kind: StemKind }): React.JSX.Element {
+  const peaks = useStudioStore((s) => s.peaks[kind] ?? NO_PEAKS)
+  const soloed = useStudioStore((s) => s.controls[kind].soloed)
+  const anySolo = useStudioStore((s) => s.stemKinds.some((k) => s.controls[k].soloed))
+  return <Waveform peaks={peaks} color={STEM_COLORS[kind]} dimmed={anySolo && !soloed} />
+}
+
+/**
+ * The loop-region highlight (ruler band / full-height lane band). A loop drag
+ * streams `setLoop` at pointer-move rate, so these subscribe to `loop` in a
+ * leaf instead of re-rendering the Studio shell per move.
+ */
+function LoopBand({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element | null {
+  const loop = useStudioStore((s) => s.loop)
+  const duration = useStudioStore((s) => s.duration)
+  const laneW = useStudioStore((s) => s.laneW)
+  if (!loop || duration <= 0) return null
+  const left = (loop.startSec / duration) * laneW
+  const width = Math.max(1, (loop.endSec / duration) * laneW - left)
+  if (variant === 'ruler') {
+    return (
+      <div
+        className="absolute inset-y-0 border-x"
+        style={{
+          left,
+          width,
+          background: loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)',
+          borderColor: loop.enabled ? 'var(--color-accent)' : 'var(--color-border)'
+        }}
+      />
+    )
+  }
+  return (
+    <div
+      className="absolute inset-y-0"
+      style={{
+        left,
+        width,
+        background: loop.enabled ? 'rgba(124,92,255,0.10)' : 'rgba(148,148,148,0.06)',
+        borderLeft: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`,
+        borderRight: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`
+      }}
+    />
+  )
+}
+
+/** The loop toolbar segment — its label tracks the drag, so it's a leaf too. */
+function LoopControls(): React.JSX.Element {
+  const loop = useStudioStore((s) => s.loop)
+  return (
+    <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
+      <button
+        onClick={() => useStudioStore.getState().toggleLoop()}
+        disabled={!loop}
+        className="rounded-md px-1.5 py-0.5 font-medium disabled:opacity-40"
+        style={{
+          background: loop?.enabled ? 'var(--color-accent)' : 'transparent',
+          color: loop?.enabled ? '#fff' : undefined
+        }}
+        title="Toggle loop"
+      >
+        Loop
+      </button>
+      {loop ? (
+        <>
+          <span className="font-mono tabular-nums text-text">
+            {formatTime(loop.startSec)}–{formatTime(loop.endSec)}
+          </span>
+          <button
+            onClick={() => useStudioStore.getState().clearLoop()}
+            className="h-5 w-5 rounded-md border border-border leading-none text-muted hover:text-text"
+            title="Clear loop"
+          >
+            ×
+          </button>
+        </>
+      ) : (
+        <span className="text-muted">drag over the tracks</span>
+      )}
+    </div>
+  )
+}
+
+/** Tempo + key toolbar segments. The tempo slider streams changes while it's
+ *  dragged, so this subscribes to `tempoKey` in a leaf. */
+function TempoKeyControls(): React.JSX.Element {
+  const tempoKey = useStudioStore((s) => s.tempoKey)
+  const features = useStudioStore((s) => s.project?.features)
+
+  const onTempo = (ratio: number): void => useStudioStore.getState().setTempo(ratio)
+  const onSemitones = (semitones: number): void => useStudioStore.getState().setSemitones(semitones)
+
+  const tempoPct = Math.round((tempoKey.tempoRatio - 1) * 100)
+  const effectiveBpm = features?.bpm ? Math.round(features.bpm * tempoKey.tempoRatio) : null
+  const shiftedKey = transposeKey(features?.key ?? null, tempoKey.semitones)
+
+  return (
+    <>
+      <div className="flex items-center gap-3 rounded-full border border-border px-3 py-1.5 text-xs">
+        <span className="text-muted">Tempo</span>
+        <input
+          type="range"
+          min={0.5}
+          max={1.5}
+          step={0.01}
+          value={tempoKey.tempoRatio}
+          onChange={(e) => onTempo(Number(e.target.value))}
+          className="w-32 accent-accent"
+          aria-label="Tempo"
+        />
+        <span className="w-24 text-right font-mono tabular-nums text-text">
+          {effectiveBpm !== null
+            ? `${effectiveBpm} BPM`
+            : `${Math.round(tempoKey.tempoRatio * 100)}%`}
+          <span className="text-muted">
+            {' '}
+            ({tempoPct >= 0 ? '+' : ''}
+            {tempoPct}%)
+          </span>
+        </span>
+        <button
+          onClick={() => onTempo(1)}
+          disabled={tempoKey.tempoRatio === 1}
+          className="rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
+          title="Reset tempo"
+        >
+          ↺
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
+        <span className="text-muted">Key</span>
+        <button
+          onClick={() => onSemitones(tempoKey.semitones - 1)}
+          disabled={tempoKey.semitones <= -12}
+          className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
+          title="Down a semitone"
+        >
+          −
+        </button>
+        <span className="w-10 text-center font-mono tabular-nums text-text">
+          {tempoKey.semitones >= 0 ? '+' : ''}
+          {tempoKey.semitones} st
+        </span>
+        <button
+          onClick={() => onSemitones(tempoKey.semitones + 1)}
+          disabled={tempoKey.semitones >= 12}
+          className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
+          title="Up a semitone"
+        >
+          +
+        </button>
+        {tempoKey.semitones !== 0 && shiftedKey && (
+          <span className="text-muted">→ {shiftedKey}</span>
+        )}
+        <button
+          onClick={() => onSemitones(0)}
+          disabled={tempoKey.semitones === 0}
+          className="ml-0.5 rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
+          title="Reset key"
+        >
+          ↺
+        </button>
+      </div>
+    </>
+  )
+}
+
 function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement>(null)
   const rulerRef = useRef<HTMLDivElement>(null)
   const loopDrag = useRef<LoopDrag | null>(null)
   const [lyricsOpen, setLyricsOpen] = useState(false)
 
+  // Deliberately NOT subscribed here: `controls`, `peaks`, `loop`, `tempoKey`,
+  // `currentTime`. Those change at pointer-drag / RAF rate and live in leaf
+  // components (LaneWaveform, LoopBand, LoopControls, TempoKeyControls,
+  // Playhead) so continuous gestures never re-render this shell.
   const loading = useStudioStore((s) => s.loading)
   const error = useStudioStore((s) => s.error)
   const project = useStudioStore((s) => s.project)
   const stemKinds = useStudioStore((s) => s.stemKinds)
-  const controls = useStudioStore((s) => s.controls)
-  const peaks = useStudioStore((s) => s.peaks)
   const playing = useStudioStore((s) => s.playing)
   const countingIn = useStudioStore((s) => s.countingIn)
   const duration = useStudioStore((s) => s.duration)
   const beatGridOffsetSec = useStudioStore((s) => s.beatGridOffsetSec)
-  const tempoKey = useStudioStore((s) => s.tempoKey)
-  const loop = useStudioStore((s) => s.loop)
   const metronome = useStudioStore((s) => s.metronome)
   const countIn = useStudioStore((s) => s.countIn)
   const exportOpen = useStudioStore((s) => s.exportOpen)
@@ -113,8 +286,11 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   }, [songId])
 
   // 60fps transport clock: the store's `tick` reflects the engine clock and
-  // drives loop-wrap / end-of-song.
+  // drives loop-wrap / end-of-song. Only runs while the transport moves —
+  // paused/stopped, the clock is static (seeks write the store directly), so
+  // the tab fully idles.
   useEffect(() => {
+    if (!playing) return
     let raf = 0
     const tick = (): void => {
       useStudioStore.getState().tick()
@@ -122,18 +298,29 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [playing])
 
-  // Measure the lane region for the overlay (grid + playhead).
+  // Measure the lane region for the overlay (grid + playhead). Resize events
+  // outpace frames while the window edge is dragged — coalesce to one per frame.
   useEffect(() => {
     const el = overlayRef.current
     if (!el) return
     const update = (): void =>
       useStudioStore.getState().setLaneSize(el.clientWidth, el.clientHeight)
     update()
-    const ro = new ResizeObserver(update)
+    let raf = 0
+    const ro = new ResizeObserver(() => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        update()
+      })
+    })
     ro.observe(el)
-    return () => ro.disconnect()
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
   }, [loading, stemKinds.length])
 
   const seekFromLane = (e: React.MouseEvent<HTMLDivElement>): void => {
@@ -224,19 +411,8 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     window.addEventListener('pointerup', onRulerPointerUp, { once: true })
   }
 
-  const onTempo = (ratio: number): void => useStudioStore.getState().setTempo(ratio)
-  const onSemitones = (semitones: number): void => useStudioStore.getState().setSemitones(semitones)
-
-  const anySolo = stemKinds.some((k) => controls[k].soloed)
   const features = project?.features
   const hasGrid = !!features && features.beatTimes.length > 0
-
-  const loopStartX = loop && duration > 0 ? (loop.startSec / duration) * laneW : 0
-  const loopEndX = loop && duration > 0 ? (loop.endSec / duration) * laneW : 0
-
-  const tempoPct = Math.round((tempoKey.tempoRatio - 1) * 100)
-  const effectiveBpm = features?.bpm ? Math.round(features.bpm * tempoKey.tempoRatio) : null
-  const shiftedKey = transposeKey(features?.key ?? null, tempoKey.semitones)
 
   return (
     <div className="flex h-full flex-col">
@@ -300,103 +476,9 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-            <div className="flex items-center gap-3 rounded-full border border-border px-3 py-1.5 text-xs">
-              <span className="text-muted">Tempo</span>
-              <input
-                type="range"
-                min={0.5}
-                max={1.5}
-                step={0.01}
-                value={tempoKey.tempoRatio}
-                onChange={(e) => onTempo(Number(e.target.value))}
-                className="w-32 accent-accent"
-                aria-label="Tempo"
-              />
-              <span className="w-24 text-right font-mono tabular-nums text-text">
-                {effectiveBpm !== null
-                  ? `${effectiveBpm} BPM`
-                  : `${Math.round(tempoKey.tempoRatio * 100)}%`}
-                <span className="text-muted">
-                  {' '}
-                  ({tempoPct >= 0 ? '+' : ''}
-                  {tempoPct}%)
-                </span>
-              </span>
-              <button
-                onClick={() => onTempo(1)}
-                disabled={tempoKey.tempoRatio === 1}
-                className="rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
-                title="Reset tempo"
-              >
-                ↺
-              </button>
-            </div>
+            <TempoKeyControls />
 
-            <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
-              <span className="text-muted">Key</span>
-              <button
-                onClick={() => onSemitones(tempoKey.semitones - 1)}
-                disabled={tempoKey.semitones <= -12}
-                className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
-                title="Down a semitone"
-              >
-                −
-              </button>
-              <span className="w-10 text-center font-mono tabular-nums text-text">
-                {tempoKey.semitones >= 0 ? '+' : ''}
-                {tempoKey.semitones} st
-              </span>
-              <button
-                onClick={() => onSemitones(tempoKey.semitones + 1)}
-                disabled={tempoKey.semitones >= 12}
-                className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
-                title="Up a semitone"
-              >
-                +
-              </button>
-              {tempoKey.semitones !== 0 && shiftedKey && (
-                <span className="text-muted">→ {shiftedKey}</span>
-              )}
-              <button
-                onClick={() => onSemitones(0)}
-                disabled={tempoKey.semitones === 0}
-                className="ml-0.5 rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
-                title="Reset key"
-              >
-                ↺
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
-              <button
-                onClick={() => useStudioStore.getState().toggleLoop()}
-                disabled={!loop}
-                className="rounded-md px-1.5 py-0.5 font-medium disabled:opacity-40"
-                style={{
-                  background: loop?.enabled ? 'var(--color-accent)' : 'transparent',
-                  color: loop?.enabled ? '#fff' : undefined
-                }}
-                title="Toggle loop"
-              >
-                Loop
-              </button>
-              {loop ? (
-                <>
-                  <span className="font-mono tabular-nums text-text">
-                    {formatTime(loop.startSec)}–{formatTime(loop.endSec)}
-                  </span>
-                  <button
-                    onClick={() => useStudioStore.getState().clearLoop()}
-                    className="h-5 w-5 rounded-md border border-border leading-none text-muted hover:text-text"
-                    title="Clear loop"
-                  >
-                    ×
-                  </button>
-                </>
-              ) : (
-                <span className="text-muted">drag over the tracks</span>
-              )}
-            </div>
+            <LoopControls />
 
             <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
               <button
@@ -462,17 +544,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                   style={{ left: GUTTER, right: 0, height: RULER_H }}
                   title="Drag to set a loop region"
                 >
-                  {loop && (
-                    <div
-                      className="absolute inset-y-0 border-x"
-                      style={{
-                        left: loopStartX,
-                        width: Math.max(1, loopEndX - loopStartX),
-                        background: loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)',
-                        borderColor: loop.enabled ? 'var(--color-accent)' : 'var(--color-border)'
-                      }}
-                    />
-                  )}
+                  <LoopBand variant="ruler" />
                   <Playhead variant="ruler" />
                 </div>
 
@@ -484,11 +556,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                         className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
                         onClick={seekFromLane}
                       >
-                        <Waveform
-                          peaks={peaks[kind] ?? NO_PEAKS}
-                          color={STEM_COLORS[kind]}
-                          dimmed={anySolo && !controls[kind].soloed}
-                        />
+                        <LaneWaveform kind={kind} />
                       </div>
                     </div>
                   ))}
@@ -500,20 +568,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
                   className="pointer-events-none absolute"
                   style={{ top: RULER_H, bottom: 0, left: GUTTER, right: 0 }}
                 >
-                  {loop && (
-                    <div
-                      className="absolute inset-y-0"
-                      style={{
-                        left: loopStartX,
-                        width: Math.max(1, loopEndX - loopStartX),
-                        background: loop.enabled
-                          ? 'rgba(124,92,255,0.10)'
-                          : 'rgba(148,148,148,0.06)',
-                        borderLeft: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`,
-                        borderRight: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`
-                      }}
-                    />
-                  )}
+                  <LoopBand variant="lane" />
                   {hasGrid && (
                     <BeatGrid
                       beatTimes={features.beatTimes}

@@ -36,10 +36,32 @@ function ytError(err: NodeJS.ErrnoException): Error {
 }
 
 /**
+ * Session cache of search results. A yt-dlp spawn is a Python cold start
+ * (hundreds of ms) before any network happens, so repeat searches — retyping,
+ * going back to a previous query — resolve instantly instead of re-paying it.
+ */
+const searchCache = new Map<string, YtCandidate[]>()
+const SEARCH_CACHE_MAX = 50
+
+/**
  * Search YouTube for `query` and return up to `limit` candidates (metadata
  * only — a *flat* search, so it's fast and still reports duration/thumbnail).
  */
-export function searchYouTube(query: string, limit = 10): Promise<YtCandidate[]> {
+export async function searchYouTube(query: string, limit = 10): Promise<YtCandidate[]> {
+  const cacheKey = `${limit}:${query.toLowerCase()}`
+  const cached = searchCache.get(cacheKey)
+  if (cached) return cached
+
+  const results = await runSearch(query, limit)
+  if (searchCache.size >= SEARCH_CACHE_MAX) {
+    const oldest = searchCache.keys().next().value
+    if (oldest !== undefined) searchCache.delete(oldest)
+  }
+  searchCache.set(cacheKey, results)
+  return results
+}
+
+function runSearch(query: string, limit: number): Promise<YtCandidate[]> {
   // Tab-separated so `|`/`-` in titles can't break field parsing.
   const args = [
     '--no-warnings',

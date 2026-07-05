@@ -16,6 +16,8 @@ import { create } from 'zustand'
 import {
   PEAK_BUCKETS,
   STEM_KINDS,
+  STEMS_DIR,
+  stemFilename,
   type LoopRegion,
   type Lyrics,
   type ProjectFile,
@@ -178,11 +180,13 @@ export const useStudioStore = create<StudioStore>()((set, get) => ({
         return
       }
 
+      // Stems stream straight from the library over the privileged media
+      // protocol — no whole-file structured clone across the IPC boundary.
       const buffers: Partial<Record<StemKind, ArrayBuffer>> = {}
       await Promise.all(
         loaded.stems.map(async (kind) => {
-          const bytes = await window.timbrel.getStemBytes(songId, kind)
-          if (bytes) buffers[kind] = bytes
+          const res = await fetch(`timbrel-media://${songId}/${STEMS_DIR}/${stemFilename(kind)}`)
+          if (res.ok) buffers[kind] = await res.arrayBuffer()
         })
       )
       if (stale()) return engine.dispose()

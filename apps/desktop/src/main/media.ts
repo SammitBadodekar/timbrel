@@ -10,7 +10,8 @@
  * file:// in prod), so the response carries an explicit CORS header.
  */
 import { protocol } from 'electron'
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
 import { join, normalize, sep, extname } from 'node:path'
 import { libraryRoot } from './lib/paths'
@@ -34,14 +35,24 @@ export function registerMediaSchemePrivileges(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: MEDIA_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+      // corsEnabled is required for the renderer to `fetch()` a stem: the
+      // renderer origin (http://localhost in dev, file:// in prod) differs from
+      // this scheme, so without it a cross-origin fetch fails with "Failed to
+      // fetch" regardless of the response's Access-Control-Allow-Origin header.
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+        corsEnabled: true
+      }
     }
   ])
 }
 
 /** Must run after `app.whenReady()`. */
 export function registerMediaProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, (request) => {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
     const url = new URL(request.url)
     const songId = url.hostname
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
@@ -53,7 +64,13 @@ export function registerMediaProtocol(): void {
     if (filePath !== root && !filePath.startsWith(root + sep)) {
       return new Response('forbidden', { status: 403 })
     }
-    if (!existsSync(filePath)) {
+
+    // One async stat covers both the existence check and Content-Length,
+    // without blocking the main thread per request.
+    let size: number
+    try {
+      size = (await stat(filePath)).size
+    } catch {
       return new Response('not found', { status: 404 })
     }
 
@@ -62,7 +79,7 @@ export function registerMediaProtocol(): void {
       status: 200,
       headers: {
         'Content-Type': MIME_BY_EXT[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-        'Content-Length': String(statSync(filePath).size),
+        'Content-Length': String(size),
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
       }
