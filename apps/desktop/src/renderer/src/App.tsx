@@ -4,6 +4,8 @@ import type { JobUi } from './types'
 import Library from './components/Library'
 import Studio from './components/Studio'
 import Search from './components/Search'
+import AudioOutput from './components/AudioOutput'
+import { useRoutingStore } from './store/routingStore'
 
 function App(): React.JSX.Element {
   const [songs, setSongs] = useState<SongSummary[]>([])
@@ -14,6 +16,11 @@ function App(): React.JSX.Element {
 
   const refreshSongs = useCallback(async () => {
     setSongs(await window.timbrel.listSongs())
+  }, [])
+
+  // Load the global output-routing rig + enumerate devices once, app-wide.
+  useEffect(() => {
+    void useRoutingStore.getState().init()
   }, [])
 
   useEffect(() => {
@@ -64,26 +71,20 @@ function App(): React.JSX.Element {
     }
   }, [refreshSongs])
 
-  if (selectedSongId) {
-    return <Studio songId={selectedSongId} onBack={() => setSelectedSongId(null)} />
-  }
-
-  if (searchOpen) {
-    return (
-      <Search
-        onBack={() => {
-          setSearchOpen(false)
-          void refreshSongs()
-        }}
-        onOpenSong={(songId) => {
-          setSearchOpen(false)
-          setSelectedSongId(songId)
-        }}
-      />
-    )
-  }
-
-  return (
+  const content = selectedSongId ? (
+    <Studio songId={selectedSongId} onBack={() => setSelectedSongId(null)} />
+  ) : searchOpen ? (
+    <Search
+      onBack={() => {
+        setSearchOpen(false)
+        void refreshSongs()
+      }}
+      onOpenSong={(songId) => {
+        setSearchOpen(false)
+        setSelectedSongId(songId)
+      }}
+    />
+  ) : (
     <Library
       songs={songs}
       jobs={jobs}
@@ -92,6 +93,14 @@ function App(): React.JSX.Element {
       onOpenSearch={() => setSearchOpen(true)}
       onOpen={setSelectedSongId}
     />
+  )
+
+  return (
+    <>
+      {content}
+      {/* Audio output routing — app-wide launcher + modal (works with no song loaded). */}
+      <AudioOutput />
+    </>
   )
 }
 

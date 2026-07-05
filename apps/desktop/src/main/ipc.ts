@@ -12,6 +12,7 @@ import {
   type Lyrics,
   type PeaksFile,
   type ProjectFile,
+  type RoutingRig,
   type SpotifyTrack,
   type YtCandidate
 } from '@timbrel/core'
@@ -26,6 +27,7 @@ import {
 } from '../shared/ipc'
 import type { SidecarManager } from './sidecar/manager'
 import * as songs from './storage/songs'
+import * as settings from './storage/settings'
 import { hashFile, songIdFromHash, songIdFromSpotify, songIdFromYoutube } from './lib/hash'
 import { songDir, stemsDir, projectPath, peaksPath, lyricsPath, stemPath } from './lib/paths'
 import { registerExportIpc } from './export/ipc'
@@ -119,6 +121,13 @@ export function registerIpc(sidecar: SidecarManager): void {
     async (_event, songId: string, peaks: PeaksFile): Promise<void> => {
       await writeFile(peaksPath(songId), JSON.stringify(peaks), 'utf8')
     }
+  )
+
+  ipcMain.handle(IpcChannel.GetRoutingRig, async () => settings.readRoutingRig())
+
+  ipcMain.handle(
+    IpcChannel.SaveRoutingRig,
+    async (_event, rig: RoutingRig): Promise<void> => settings.writeRoutingRig(rig)
   )
 }
 

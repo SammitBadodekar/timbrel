@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -53,6 +53,15 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // Output-device routing needs `enumerateDevices()` to expose device *labels*
+  // ("AirPods Pro" vs a blank id), which Chromium gates behind a media
+  // permission. Silently grant it (no prompt) — Timbrel never records audio; it
+  // only needs the labels to build the routing UI (DECISIONS.md → Permissions).
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media')
+  })
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media')
 
   initDb()
   registerMediaProtocol()

@@ -11,6 +11,7 @@ import type {
   MixerState,
   PeaksFile,
   ProjectFile,
+  RoutingRig,
   SeparationStage,
   SpotifyConnection,
   SpotifyPlaylist,
@@ -42,7 +43,9 @@ export const IpcChannel = {
   SpotifyImportTrack: 'spotify:importTrack',
   YoutubeSearch: 'youtube:search',
   YoutubeImport: 'youtube:import',
-  GetLyrics: 'lyrics:get'
+  GetLyrics: 'lyrics:get',
+  GetRoutingRig: 'routing:get',
+  SaveRoutingRig: 'routing:save'
 } as const
 
 export interface StartSeparationInput {
@@ -185,4 +188,8 @@ export interface TimbrelApi {
   youtubeImport(video: YtCandidate): Promise<StartSeparationResult>
   /** Synced lyrics for a song (cached; best-effort from LRCLIB). */
   getLyrics(songId: string): Promise<Lyrics | null>
+  /** The global multi-device output routing rig (app-wide, not per-song). */
+  getRoutingRig(): Promise<RoutingRig>
+  /** Persist the global routing rig. */
+  saveRoutingRig(rig: RoutingRig): Promise<void>
 }

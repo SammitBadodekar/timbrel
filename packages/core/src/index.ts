@@ -11,3 +11,4 @@ export * from "./spotify.js";
 export * from "./match.js";
 export * from "./youtube.js";
 export * from "./lyrics.js";
+export * from "./routing.js";

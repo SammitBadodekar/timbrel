@@ -41,6 +41,14 @@ export function initDb(): Database.Database {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    -- App-global key/value settings (no per-song home). The multi-device
+    -- output routing rig lives here (DECISIONS.md → Persistence): global, so
+    -- machine-specific device ids never travel into a portable project.json.
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `)
   db = database
   return database

@@ -28,11 +28,7 @@ const RELEASE_BASE =
 function platformAsset(): string {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
   const os =
-    process.platform === 'darwin'
-      ? 'macos'
-      : process.platform === 'win32'
-        ? 'windows'
-        : 'linux'
+    process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
   return `timbrel-sidecar-${os}-${arch}.tar.gz`
 }
 
@@ -88,9 +84,7 @@ export async function ensureSidecar(
   const archive = join(dir, 'sidecar.tar.gz')
 
   onProgress(0, 'downloading')
-  await download(`${RELEASE_BASE}/${platformAsset()}`, archive, (p) =>
-    onProgress(p, 'downloading')
-  )
+  await download(`${RELEASE_BASE}/${platformAsset()}`, archive, (p) => onProgress(p, 'downloading'))
 
   onProgress(1, 'extracting')
   await extractTarGz(archive, dir)
@@ -136,8 +130,6 @@ function download(
 /** Extract with the platform `tar` (bsdtar ships on Windows 10+, macOS, Linux). */
 function extractTarGz(archive: string, destDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('tar', ['-xzf', archive, '-C', destDir], (err) =>
-      err ? reject(err) : resolve()
-    )
+    execFile('tar', ['-xzf', archive, '-C', destDir], (err) => (err ? reject(err) : resolve()))
   })
 }

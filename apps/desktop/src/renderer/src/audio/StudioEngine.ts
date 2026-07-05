@@ -18,7 +18,15 @@
  * the transport so it follows tempo and the grid nudge — routed straight to the
  * destination so it never gets time-stretched, muted, or soloed.
  */
-import { computePeaks, type LoopRegion, type StemContribution, type StemKind } from '@timbrel/core'
+import {
+  computePeaks,
+  ROUTABLE_CHANNELS,
+  SYSTEM_SINK_ID,
+  type LoopRegion,
+  type ResolvedRouting,
+  type StemContribution,
+  type StemKind
+} from '@timbrel/core'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
 
@@ -26,6 +34,32 @@ export interface StemControls {
   gain: number
   muted: boolean
   soloed: boolean
+}
+
+/** A physical output sink's terminal. The system output routes straight to
+ *  `ctx.destination`; a specific device streams via a MediaStream piped into a
+ *  hidden <audio> element pinned to the device with `setSinkId`. */
+interface SinkOutput {
+  dest: AudioNode
+  msd: MediaStreamAudioDestinationNode | null
+  audio: HTMLAudioElement | null
+}
+
+/** Per-sink stem submix. `stretch` exists only while tempo/key is non-neutral;
+ *  the summed stems for a sink flow submix → (stretch?) → sink terminal. */
+interface SinkSubmix {
+  submix: GainNode
+  stretch: SoundTouchNode | null
+}
+
+type SinkAudio = HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }
+
+/** The initial routing before any rig is applied: every channel → the system
+ *  sink, which wires up exactly like the original single-master graph. */
+function defaultResolvedRouting(): ResolvedRouting {
+  const out = {} as ResolvedRouting
+  for (const ch of ROUTABLE_CHANNELS) out[ch] = { deviceIds: [SYSTEM_SINK_ID], silent: false }
+  return out
 }
 
 /** One WYSIWYG export render: what to sum, and whether to bake tempo/key. */
@@ -61,7 +95,6 @@ function synthClick(
 
 export class StudioEngine {
   private readonly ctx: AudioContext
-  private readonly master: GainNode
   private readonly buffers = new Map<StemKind, AudioBuffer>()
   private readonly gains = new Map<StemKind, GainNode>()
   private readonly sources = new Map<StemKind, AudioBufferSourceNode>()
@@ -71,12 +104,22 @@ export class StudioEngine {
   private offsetSec = 0
   private playing = false
 
-  // Global tempo/key (one SoundTouch node on the master bus).
-  private stNode: SoundTouchNode | null = null
+  // --- Output routing (DECISIONS.md → Multi-device audio output routing) ------
+  // The resolved per-channel sink mapping plus the live nodes realising it.
+  // Stems bound to a sink sum into that sink's submix (through a per-sink
+  // SoundTouch node when tempo/key is non-neutral); the click is always dry.
+  // Default routing (every channel → the system sink) reproduces the original
+  // single-master → destination graph exactly.
+  private resolved: ResolvedRouting = defaultResolvedRouting()
+  private readonly sinks = new Map<string, SinkOutput>()
+  private readonly submixes = new Map<string, SinkSubmix>()
   private workletReady: Promise<void> | null = null
+  private rebuildChain: Promise<void> = Promise.resolve()
+
+  // Global tempo/key: mirrored onto every source's playbackRate and every
+  // per-sink SoundTouch node (which compensates the pitch). 1 / 0 = neutral.
   private rate = 1
   private semitones = 0
-  private routedThroughStretch = false
 
   // Loop region (non-null only while an enabled loop is set).
   private loop: LoopRegion | null = null
@@ -103,11 +146,11 @@ export class StudioEngine {
 
   constructor() {
     this.ctx = new AudioContext()
-    this.master = this.ctx.createGain()
-    this.master.connect(this.ctx.destination)
     this.clickBus = this.ctx.createGain()
     this.clickBus.gain.value = 0.9
-    this.clickBus.connect(this.ctx.destination)
+    // The system sink is synchronous (dest = ctx.destination), so the click
+    // works immediately — identical to the original clickBus → destination.
+    this.clickBus.connect(this.ensureSink(SYSTEM_SINK_ID).dest)
   }
 
   /** Decode every stem from its FLAC bytes and build its gain node. */
@@ -117,7 +160,6 @@ export class StudioEngine {
       entries.map(async ([kind, bytes]) => {
         const buffer = await this.ctx.decodeAudioData(bytes)
         const gain = this.ctx.createGain()
-        gain.connect(this.master)
         this.buffers.set(kind, buffer)
         this.gains.set(kind, gain)
         this.controls.set(kind, { gain: 1, muted: false, soloed: false })
@@ -125,6 +167,10 @@ export class StudioEngine {
       })
     )
     this.applyMix()
+    // Wire the freshly-created stem gains into the routing graph before the
+    // caller (the store) starts playback.
+    this.scheduleRebuild()
+    await this.rebuildChain
     return [...this.buffers.keys()]
   }
 
@@ -276,57 +322,158 @@ export class StudioEngine {
       this.offsetSec = this.currentTime
       this.startedAtCtxTime = this.ctx.currentTime
     }
+    const wasActive = this.rate !== 1 || this.semitones !== 0
     this.rate = clamped
     for (const source of this.sources.values()) {
       source.playbackRate.value = clamped
     }
-    if (this.stNode) this.stNode.playbackRate.value = clamped
+    for (const sm of this.submixes.values()) {
+      if (sm.stretch) sm.stretch.playbackRate.value = clamped
+    }
     // Upcoming beats must be re-timed for the new rate (already-scheduled
     // clicks in the ~100 ms window keep their old timing — negligible drift).
     this.nextBeatIdx = 0
-    void this.updateRouting()
+    // Crossing the neutral boundary adds/removes the per-sink stretch nodes.
+    if ((this.rate !== 1 || this.semitones !== 0) !== wasActive) this.scheduleRebuild()
   }
 
   /** Change global key by whole semitones (0 = original). */
   setSemitones(semitones: number): void {
     const clamped = Math.round(Math.min(12, Math.max(-12, semitones)))
     if (clamped === this.semitones) return
+    const wasActive = this.rate !== 1 || this.semitones !== 0
     this.semitones = clamped
-    if (this.stNode) this.stNode.pitchSemitones.value = clamped
-    void this.updateRouting()
+    for (const sm of this.submixes.values()) {
+      if (sm.stretch) sm.stretch.pitchSemitones.value = clamped
+    }
+    if ((this.rate !== 1 || this.semitones !== 0) !== wasActive) this.scheduleRebuild()
   }
 
-  /** Lazily create + register the SoundTouch node the first time it's needed. */
-  private async ensureStretchNode(): Promise<SoundTouchNode> {
+  // --- Output routing -------------------------------------------------------
+
+  /**
+   * Apply a resolved routing (from core's `resolveRouting`) — which channels
+   * play out of which sinks. Serialised through `rebuildChain` so a burst of rig
+   * or device changes can't interleave graph edits.
+   */
+  setRouting(resolved: ResolvedRouting): void {
+    this.resolved = resolved
+    this.scheduleRebuild()
+  }
+
+  private scheduleRebuild(): void {
+    this.rebuildChain = this.rebuildChain.then(() => this.rebuildRoutingGraph()).catch(() => {})
+  }
+
+  /** A sink's terminal: `ctx.destination` for the system output; otherwise a
+   *  MediaStream piped to an <audio> element pinned to the device. */
+  private ensureSink(id: string): SinkOutput {
+    const existing = this.sinks.get(id)
+    if (existing) return existing
+    let sink: SinkOutput
+    if (id === SYSTEM_SINK_ID) {
+      sink = { dest: this.ctx.destination, msd: null, audio: null }
+    } else {
+      const msd = this.ctx.createMediaStreamDestination()
+      const audio = new Audio() as SinkAudio
+      audio.srcObject = msd.stream
+      // Pin to the device, then start pulling the stream. Best-effort: a vanished
+      // device or a blocked autoplay is retried on the next play().
+      void (audio.setSinkId?.(id) ?? Promise.resolve()).then(() => audio.play()).catch(() => {})
+      sink = { dest: msd, msd, audio }
+    }
+    this.sinks.set(id, sink)
+    return sink
+  }
+
+  private ensureSubmix(id: string): SinkSubmix {
+    const existing = this.submixes.get(id)
+    if (existing) return existing
+    const sm: SinkSubmix = { submix: this.ctx.createGain(), stretch: null }
+    this.submixes.set(id, sm)
+    return sm
+  }
+
+  /** Lazily create + register this submix's SoundTouch node, mirroring the
+   *  current tempo/key onto it. */
+  private async ensureStretch(sm: SinkSubmix): Promise<SoundTouchNode> {
     if (!this.workletReady) {
       this.workletReady = SoundTouchNode.register(this.ctx, processorUrl)
     }
     await this.workletReady
-    if (!this.stNode) {
-      const node = new SoundTouchNode({ context: this.ctx })
-      node.connect(this.ctx.destination)
-      node.playbackRate.value = this.rate
-      node.pitchSemitones.value = this.semitones
-      this.stNode = node
-    }
-    return this.stNode
+    if (!sm.stretch) sm.stretch = new SoundTouchNode({ context: this.ctx })
+    sm.stretch.playbackRate.value = this.rate
+    sm.stretch.pitchSemitones.value = this.semitones
+    return sm.stretch
   }
 
-  /** Route the master bus through SoundTouch only when tempo/key is non-neutral. */
-  private async updateRouting(): Promise<void> {
+  /**
+   * Rebuild the routing graph from `this.resolved`: (re)wire every stem gain to
+   * the submix of each sink it targets, sum each sink's stems through a per-sink
+   * SoundTouch node while tempo/key is non-neutral, route the (dry) click bus to
+   * its sinks, and tear down anything no longer in use. Idempotent — runs for a
+   * rig change, a device (dis)connect, or a tempo neutral↔active flip.
+   */
+  private async rebuildRoutingGraph(): Promise<void> {
+    if (this.disposed) return
     const active = this.rate !== 1 || this.semitones !== 0
-    if (active === this.routedThroughStretch) return
-    if (active) {
-      const node = await this.ensureStretchNode()
-      // Guard against a state flip while awaiting registration.
-      if (this.rate === 1 && this.semitones === 0) return
-      this.master.disconnect()
-      this.master.connect(node)
-      this.routedThroughStretch = true
-    } else {
-      this.master.disconnect()
-      this.master.connect(this.ctx.destination)
-      this.routedThroughStretch = false
+
+    const stemSinks = new Set<string>()
+    for (const kind of this.gains.keys()) {
+      const r = this.resolved[kind]
+      if (r && !r.silent) for (const id of r.deviceIds) stemSinks.add(id)
+    }
+    const clickRoute = this.resolved.click
+    const clickSinks =
+      clickRoute && !clickRoute.silent ? new Set(clickRoute.deviceIds) : new Set<string>()
+    const allSinks = new Set<string>([...stemSinks, ...clickSinks])
+
+    // Terminals first (async setSinkId for device sinks).
+    for (const id of allSinks) this.ensureSink(id)
+
+    // Per-sink stem submix → (stretch when active) → terminal.
+    for (const id of stemSinks) {
+      const sm = this.ensureSubmix(id)
+      sm.submix.disconnect()
+      if (active) {
+        const node = await this.ensureStretch(sm)
+        if (this.disposed) return
+        node.disconnect()
+        node.connect(this.ensureSink(id).dest)
+        sm.submix.connect(node)
+      } else {
+        sm.stretch?.disconnect()
+        sm.submix.connect(this.ensureSink(id).dest)
+      }
+    }
+
+    // Stem gains → their sinks' submixes (nothing when silenced).
+    for (const [kind, gain] of this.gains) {
+      gain.disconnect()
+      const r = this.resolved[kind]
+      if (r && !r.silent) for (const id of r.deviceIds) gain.connect(this.ensureSubmix(id).submix)
+    }
+
+    // Click bus → its sinks' terminals (always dry — never time-stretched).
+    this.clickBus.disconnect()
+    for (const id of clickSinks) this.clickBus.connect(this.ensureSink(id).dest)
+
+    // Drop submixes / sinks that fell out of use (the system sink always stays).
+    for (const [id, sm] of [...this.submixes]) {
+      if (!stemSinks.has(id)) {
+        sm.submix.disconnect()
+        sm.stretch?.disconnect()
+        this.submixes.delete(id)
+      }
+    }
+    for (const [id, sink] of [...this.sinks]) {
+      if (id === SYSTEM_SINK_ID || allSinks.has(id)) continue
+      sink.msd?.disconnect()
+      if (sink.audio) {
+        sink.audio.pause()
+        sink.audio.srcObject = null
+      }
+      this.sinks.delete(id)
     }
   }
 
@@ -466,6 +613,10 @@ export class StudioEngine {
   async play(): Promise<void> {
     if (this.playing) return
     await this.ctx.resume()
+    // Recover any device <audio> sink whose autoplay was blocked before a gesture.
+    for (const sink of this.sinks.values()) {
+      if (sink.audio && sink.audio.paused) void sink.audio.play().catch(() => {})
+    }
     let from = this.offsetSec
     if (from >= this.duration) from = 0
     this.startSources(from)
@@ -517,7 +668,13 @@ export class StudioEngine {
     this.stopSources()
     this.stopScheduler()
     this.cancelCountIn()
-    this.stNode?.disconnect()
+    for (const sm of this.submixes.values()) sm.stretch?.disconnect()
+    for (const sink of this.sinks.values()) {
+      if (sink.audio) {
+        sink.audio.pause()
+        sink.audio.srcObject = null
+      }
+    }
     void this.ctx.close()
   }
 

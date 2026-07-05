@@ -1,5 +1,8 @@
-import { STEM_COLORS, STEM_KINDS, STEM_LABELS, type StemKind } from '@timbrel/core'
+import { useMemo } from 'react'
+import { allTags, STEM_COLORS, STEM_KINDS, STEM_LABELS, type StemKind } from '@timbrel/core'
 import { useStudioStore } from '../store/studioStore'
+import { useRoutingStore } from '../store/routingStore'
+import OutputPicker from './OutputPicker'
 
 /**
  * The per-stem channel strip: the fixed-width gutter that sits to the left of a
@@ -14,6 +17,12 @@ function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
   const anySolo = useStudioStore((s) => STEM_KINDS.some((k) => s.controls[k].soloed))
   const dimmed = anySolo && !controls.soloed
   const color = STEM_COLORS[kind]
+
+  // Inline output routing for this stem (edits the same global rig as the panel).
+  const devices = useRoutingStore((s) => s.devices)
+  const savedDevices = useRoutingStore((s) => s.rig.devices)
+  const override = useRoutingStore((s) => s.rig.overrides[kind] ?? null)
+  const tags = useMemo(() => allTags(savedDevices), [savedDevices])
 
   return (
     <div
@@ -56,6 +65,14 @@ function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
         onChange={(e) => useStudioStore.getState().setGain(kind, Number(e.target.value))}
         className="w-full accent-accent"
         aria-label={`${STEM_LABELS[kind]} volume`}
+      />
+
+      <OutputPicker
+        value={override}
+        onChange={(next) => useRoutingStore.getState().setChannelOverride(kind, next)}
+        allowInherit
+        devices={devices}
+        tags={tags}
       />
     </div>
   )

@@ -25,6 +25,8 @@ const timbrel: TimbrelApi = {
   youtubeSearch: (query) => ipcRenderer.invoke(IpcChannel.YoutubeSearch, query),
   youtubeImport: (video) => ipcRenderer.invoke(IpcChannel.YoutubeImport, video),
   getLyrics: (songId) => ipcRenderer.invoke(IpcChannel.GetLyrics, songId),
+  getRoutingRig: () => ipcRenderer.invoke(IpcChannel.GetRoutingRig),
+  saveRoutingRig: (rig) => ipcRenderer.invoke(IpcChannel.SaveRoutingRig, rig),
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)
