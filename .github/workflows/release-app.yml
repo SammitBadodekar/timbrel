@@ -1,0 +1,112 @@
+# Builds the desktop installers and attaches them to a DRAFT GitHub Release.
+#
+# Trigger: push a tag like `v0.1.0` (must match apps/desktop/package.json version).
+# The release stays a draft so you can smoke-test the installers before
+# publishing — the website's Download button points at /releases, which only
+# shows published releases.
+#
+# Builds are unsigned (no Apple Developer ID / Windows cert). The release notes
+# template below tells users how to open them anyway.
+
+name: Release app
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches apps/desktop version
+        run: |
+          PKG_VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, reusing it."
+            exit 0
+          fi
+          cat > notes.md <<'EOF'
+          ## Install notes
+
+          Builds are currently unsigned:
+
+          - **macOS**: after copying Timbrel to Applications, run
+            `xattr -cr /Applications/Timbrel.app` once (or right-click → Open) to
+            clear the Gatekeeper quarantine.
+          - **Windows**: if SmartScreen appears, choose *More info → Run anyway*.
+          - **Linux**: `chmod +x` the AppImage, or install the `.deb`.
+
+          On first run Timbrel downloads its stem-separation engine (~1 GB, one time).
+          EOF
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Timbrel $GITHUB_REF_NAME" \
+            --draft \
+            --notes-file notes.md
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # arm64
+            script: build:mac
+            artifacts: apps/desktop/dist/*.dmg
+          - os: windows-latest
+            script: build:win
+            artifacts: apps/desktop/dist/*-setup.exe
+          - os: ubuntu-latest
+            script: build:linux
+            artifacts: |
+              apps/desktop/dist/*.AppImage
+              apps/desktop/dist/*.deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build installers
+        # No GH_TOKEN here on purpose: electron-builder must never self-publish.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # skip macOS signing discovery; ad-hoc sign
+        run: pnpm --filter desktop run ${{ matrix.script }}
+
+      - name: Upload to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(${{ matrix.artifacts }})
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No artifacts found for pattern: ${{ matrix.artifacts }}" >&2
+            ls -la apps/desktop/dist || true
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

@@ -20,10 +20,11 @@ export interface SidecarLaunch {
   cwd?: string
 }
 
-// TODO(v0.4): point at the real GitHub Releases asset once the frozen builds ship.
+// Frozen builds are published by .github/workflows/release-sidecar.yml under
+// the `sidecar-v*` tags, one tar.gz per platform (see platformAsset below).
 const RELEASE_BASE =
   process.env.TIMBREL_SIDECAR_URL ??
-  `https://github.com/timbrel/timbrel/releases/download/sidecar-v${__sidecarVersion}`
+  `https://github.com/SammitBadodekar/timbrel/releases/download/sidecar-v${__sidecarVersion}`
 
 function platformAsset(): string {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'

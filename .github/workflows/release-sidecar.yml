@@ -1,0 +1,96 @@
+# Freezes the Python separation engine with PyInstaller and publishes one
+# tar.gz per platform to a GitHub Release.
+#
+# Trigger: push a tag like `sidecar-v0.1.0` (must match __sidecarVersion in
+# apps/desktop/src/main/sidecar/version.ts — that's the release the packaged
+# app downloads from on first run, via sidecar/resolve.ts).
+#
+# Unlike app releases this one is published immediately (not draft): draft
+# assets have no stable public download URL, and nobody browses these — the
+# app fetches them directly. `--latest=false` keeps app releases on top.
+
+name: Release sidecar
+
+on:
+  push:
+    tags:
+      - "sidecar-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches __sidecarVersion
+        run: |
+          PINNED=$(sed -n "s/.*__sidecarVersion = '\([^']*\)'.*/\1/p" apps/desktop/src/main/sidecar/version.ts)
+          TAG_VERSION="${GITHUB_REF_NAME#sidecar-v}"
+          if [ "$PINNED" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match __sidecarVersion '$PINNED' in version.ts" >&2
+            exit 1
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, reusing it."
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Sidecar $GITHUB_REF_NAME" \
+            --latest=false \
+            --notes "Frozen stem-separation engine (Demucs htdemucs_6s + librosa). Downloaded automatically by the Timbrel app on first run — you don't need to grab these by hand."
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            asset: timbrel-sidecar-macos-arm64.tar.gz
+            cpu_torch: false # default macOS wheel is MPS-capable
+          - os: windows-latest
+            asset: timbrel-sidecar-windows-x64.tar.gz
+            cpu_torch: true
+          - os: ubuntu-latest
+            asset: timbrel-sidecar-linux-x64.tar.gz
+            cpu_torch: true
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: sidecar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # 3.13 lacks wheels for demucs' deps
+          cache: pip
+          cache-dependency-path: sidecar/requirements*.txt
+
+      - name: Install CPU-only torch (Windows/Linux)
+        if: matrix.cpu_torch
+        run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Freeze with PyInstaller
+        run: pyinstaller timbrel-sidecar.spec --noconfirm
+
+      - name: Package
+        run: tar -czf "${{ matrix.asset }}" -C dist timbrel-sidecar
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.asset }}" --repo "$GITHUB_REPOSITORY" --clobber

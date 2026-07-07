@@ -19,6 +19,10 @@ Timbrel is a free, open-source desktop studio that splits music into six stems �
 
 Your library lives in plain files on disk — FLAC stems and a local SQLite database. Only YouTube search and lyrics need the network; everything else works offline.
 
+## Install
+
+Grab an installer from the [releases page](https://github.com/SammitBadodekar/timbrel/releases) — macOS (Apple Silicon), Windows and Linux. Builds are unsigned for now: on macOS run `xattr -cr /Applications/Timbrel.app` once after installing. On first run the app downloads its separation engine (~1 GB, one time). See [RELEASING.md](./RELEASING.md) for how releases are cut.
+
 ## Build from source
 
 Prerequisites: **Node 22+**, **pnpm 9**, **Python 3.11** (3.13 won't work — Demucs' dependencies lack wheels), and `ffmpeg` on PATH for compressed inputs.

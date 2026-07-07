@@ -31,13 +31,12 @@ dmg:
 linux:
   target:
     - AppImage
-    - snap
     - deb
   maintainer: Timbrel
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+# Installers are attached to GitHub Releases by .github/workflows/release-app.yml;
+# electron-builder itself never publishes (no auto-update wired up yet).
+publish: null
