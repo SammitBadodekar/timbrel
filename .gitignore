@@ -27,6 +27,9 @@ out/
 build
 dist
 
+# electron-builder buildResources (icons, entitlements) — not build output
+!apps/desktop/build/
+
 
 # Debug
 npm-debug.log*
