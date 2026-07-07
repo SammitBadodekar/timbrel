@@ -281,7 +281,13 @@ function Home({ onOpenSong, onOpenPlaylist }: HomeProps): React.JSX.Element {
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="grid h-7 w-7 place-items-center rounded-lg bg-charcoal">
-              <span className="h-2.5 w-2.5 rounded-full bg-wash-powder" />
+              {/* mini stem-bars mark — same artwork as the app icon (build/icon.svg) */}
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="1.9" y="5" width="2" height="6" rx="1" fill="var(--color-stem-vocals)" />
+                <rect x="5.3" y="3.75" width="2" height="8.5" rx="1" fill="var(--color-stem-drums)" />
+                <rect x="8.7" y="2.5" width="2" height="11" rx="1" fill="var(--color-stem-bass)" />
+                <rect x="12.1" y="3.5" width="2" height="9" rx="1" fill="var(--color-stem-guitar)" />
+              </svg>
             </span>
             <span className="text-lg font-semibold tracking-tight">Timbrel</span>
           </div>
