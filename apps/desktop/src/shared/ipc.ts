@@ -10,6 +10,7 @@ import type {
   Lyrics,
   MixerState,
   PeaksFile,
+  PlaylistSummary,
   ProjectFile,
   RoutingRig,
   SeparationStage,
@@ -26,6 +27,15 @@ export const IpcChannel = {
   StartSeparation: 'separation:start',
   SeparationEvent: 'separation:event',
   ListSongs: 'library:list',
+  DeleteSong: 'library:delete',
+  PlaylistList: 'playlist:list',
+  PlaylistGet: 'playlist:get',
+  PlaylistCreate: 'playlist:create',
+  PlaylistRename: 'playlist:rename',
+  PlaylistDelete: 'playlist:delete',
+  PlaylistAddSongs: 'playlist:addSongs',
+  PlaylistRemoveSong: 'playlist:removeSong',
+  PlaylistReorder: 'playlist:reorder',
   LoadProject: 'project:load',
   SaveProject: 'project:save',
   ReadPeaks: 'peaks:read',
@@ -73,6 +83,17 @@ export interface SongSummary {
   key: string | null
   separated: boolean
   createdAt: string
+  /** YouTube thumbnail URL (from the source's video id), or null → monogram. */
+  thumbnailUrl: string | null
+}
+
+/** One playlist with its ordered member songs (for the detail view). */
+export interface PlaylistDetail {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  songs: SongSummary[]
 }
 
 /**
@@ -140,10 +161,30 @@ export interface ProjectPatch {
 /** The surface exposed on `window.timbrel` by the preload bridge. */
 export interface TimbrelApi {
   pickAudioFile(): Promise<string | null>
+  /** Absolute filesystem path for a dropped `File` (Electron `webUtils`);
+   *  `File.path` was removed in Electron 32+. Empty string if unavailable. */
+  pathForFile(file: File): string
   startSeparation(input: StartSeparationInput): Promise<StartSeparationResult>
   /** Subscribe to push events; returns an unsubscribe function. */
   onSeparationEvent(cb: (event: SeparationEvent) => void): () => void
   listSongs(): Promise<SongSummary[]>
+  /** Permanently delete a song: its stems/original on disk, its index row, and
+   *  its membership in any playlists (the playlists themselves survive). */
+  deleteSong(songId: string): Promise<void>
+  /** All playlists with derived counts + cover song ids, newest first. */
+  listPlaylists(): Promise<PlaylistSummary[]>
+  /** One playlist with its ordered member songs, or null if gone. */
+  getPlaylist(playlistId: string): Promise<PlaylistDetail | null>
+  /** Create an empty playlist; returns it in summary form. */
+  createPlaylist(name: string): Promise<PlaylistSummary>
+  renamePlaylist(playlistId: string, name: string): Promise<void>
+  /** Delete the playlist only — never the songs it contained. */
+  deletePlaylist(playlistId: string): Promise<void>
+  /** Append songs to a playlist (dedups ones already present). */
+  addSongsToPlaylist(playlistId: string, songIds: string[]): Promise<void>
+  removeSongFromPlaylist(playlistId: string, songId: string): Promise<void>
+  /** Persist a new member order (full ordered id list). */
+  reorderPlaylist(playlistId: string, orderedSongIds: string[]): Promise<void>
   loadProject(songId: string): Promise<LoadedProject | null>
   /** Merge editable studio state into `project.json`. */
   saveProject(songId: string, patch: ProjectPatch): Promise<void>

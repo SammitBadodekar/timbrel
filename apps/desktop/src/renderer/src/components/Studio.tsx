@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { STEM_COLORS, transposeKey, type StemKind } from '@timbrel/core'
+import { STEM_COLORS, type StemKind } from '@timbrel/core'
 import { useStudioStore } from '../store/studioStore'
-import { formatTime } from '../lib/format'
 import StemRow from './StemRow'
 import Waveform from './Waveform'
-import BeatGrid from './BeatGrid'
 import ExportPanel from './ExportPanel'
 import Lyrics from './Lyrics'
+import TransportDock from './TransportDock'
+import StudioSkeleton from './StudioSkeleton'
+import { OutputButton } from './AudioOutput'
 
 interface StudioProps {
   songId: string
@@ -14,7 +15,7 @@ interface StudioProps {
 }
 
 /** Gutter (channel-strip) width in px — must match `StemRow`'s `w-40` so the
- *  beat-grid / playhead overlay lines up with the start of the waveform lanes. */
+ *  playhead overlay lines up with the start of the waveform lanes. */
 const GUTTER = 160
 /** Height of the interactive loop ruler above the lanes (px). */
 const RULER_H = 22
@@ -38,43 +39,20 @@ type LoopDrag =
   | { mode: 'resize-end' }
 
 /**
- * The moving parts that update every RAF frame live in these leaf components so
- * the (large) `Studio` shell only re-renders on real user actions — it never
- * subscribes to `currentTime`.
+ * The moving parts that update every RAF frame live in leaf components so the
+ * (large) `Studio` shell only re-renders on real user actions — it never
+ * subscribes to `currentTime`. (The transport scrubber lives in `TransportDock`.)
  */
-function TransportScrubber(): React.JSX.Element {
-  const currentTime = useStudioStore((s) => s.currentTime)
-  const duration = useStudioStore((s) => s.duration)
-  return (
-    <>
-      <span className="w-12 text-right font-mono text-sm tabular-nums text-muted">
-        {formatTime(currentTime)}
-      </span>
-      <input
-        type="range"
-        min={0}
-        max={duration || 0}
-        step={0.01}
-        value={currentTime}
-        onChange={(e) => useStudioStore.getState().seek(Number(e.target.value))}
-        className="flex-1 accent-accent"
-        aria-label="Seek"
-      />
-      <span className="w-12 font-mono text-sm tabular-nums text-muted">{formatTime(duration)}</span>
-    </>
-  )
-}
-
 function Playhead({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element {
   const x = useStudioStore((s) => (s.duration > 0 ? (s.currentTime / s.duration) * s.laneW : 0))
   return variant === 'ruler' ? (
     <div
-      className="pointer-events-none absolute top-0 w-px bg-accent"
+      className="pointer-events-none absolute top-0 w-px bg-text"
       style={{ height: RULER_H, transform: `translateX(${x}px)` }}
     />
   ) : (
     <div
-      className="absolute w-px bg-accent"
+      className="absolute w-px bg-text/80"
       style={{ top: 0, bottom: 0, transform: `translateX(${x}px)` }}
     />
   )
@@ -111,7 +89,7 @@ function LoopBand({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element
         style={{
           left,
           width,
-          background: loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)',
+          background: loop.enabled ? 'rgba(0,105,224,0.22)' : 'rgba(120,130,145,0.14)',
           borderColor: loop.enabled ? 'var(--color-accent)' : 'var(--color-border)'
         }}
       />
@@ -123,133 +101,11 @@ function LoopBand({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element
       style={{
         left,
         width,
-        background: loop.enabled ? 'rgba(124,92,255,0.10)' : 'rgba(148,148,148,0.06)',
-        borderLeft: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`,
-        borderRight: `1px solid ${loop.enabled ? 'rgba(124,92,255,0.5)' : 'rgba(148,148,148,0.3)'}`
+        background: loop.enabled ? 'rgba(0,105,224,0.06)' : 'rgba(120,130,145,0.05)',
+        borderLeft: `1px solid ${loop.enabled ? 'rgba(0,105,224,0.4)' : 'rgba(120,130,145,0.25)'}`,
+        borderRight: `1px solid ${loop.enabled ? 'rgba(0,105,224,0.4)' : 'rgba(120,130,145,0.25)'}`
       }}
     />
-  )
-}
-
-/** The loop toolbar segment — its label tracks the drag, so it's a leaf too. */
-function LoopControls(): React.JSX.Element {
-  const loop = useStudioStore((s) => s.loop)
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
-      <button
-        onClick={() => useStudioStore.getState().toggleLoop()}
-        disabled={!loop}
-        className="rounded-md px-1.5 py-0.5 font-medium disabled:opacity-40"
-        style={{
-          background: loop?.enabled ? 'var(--color-accent)' : 'transparent',
-          color: loop?.enabled ? '#fff' : undefined
-        }}
-        title="Toggle loop"
-      >
-        Loop
-      </button>
-      {loop ? (
-        <>
-          <span className="font-mono tabular-nums text-text">
-            {formatTime(loop.startSec)}–{formatTime(loop.endSec)}
-          </span>
-          <button
-            onClick={() => useStudioStore.getState().clearLoop()}
-            className="h-5 w-5 rounded-md border border-border leading-none text-muted hover:text-text"
-            title="Clear loop"
-          >
-            ×
-          </button>
-        </>
-      ) : (
-        <span className="text-muted">drag over the tracks</span>
-      )}
-    </div>
-  )
-}
-
-/** Tempo + key toolbar segments. The tempo slider streams changes while it's
- *  dragged, so this subscribes to `tempoKey` in a leaf. */
-function TempoKeyControls(): React.JSX.Element {
-  const tempoKey = useStudioStore((s) => s.tempoKey)
-  const features = useStudioStore((s) => s.project?.features)
-
-  const onTempo = (ratio: number): void => useStudioStore.getState().setTempo(ratio)
-  const onSemitones = (semitones: number): void => useStudioStore.getState().setSemitones(semitones)
-
-  const tempoPct = Math.round((tempoKey.tempoRatio - 1) * 100)
-  const effectiveBpm = features?.bpm ? Math.round(features.bpm * tempoKey.tempoRatio) : null
-  const shiftedKey = transposeKey(features?.key ?? null, tempoKey.semitones)
-
-  return (
-    <>
-      <div className="flex items-center gap-3 rounded-full border border-border px-3 py-1.5 text-xs">
-        <span className="text-muted">Tempo</span>
-        <input
-          type="range"
-          min={0.5}
-          max={1.5}
-          step={0.01}
-          value={tempoKey.tempoRatio}
-          onChange={(e) => onTempo(Number(e.target.value))}
-          className="w-32 accent-accent"
-          aria-label="Tempo"
-        />
-        <span className="w-24 text-right font-mono tabular-nums text-text">
-          {effectiveBpm !== null
-            ? `${effectiveBpm} BPM`
-            : `${Math.round(tempoKey.tempoRatio * 100)}%`}
-          <span className="text-muted">
-            {' '}
-            ({tempoPct >= 0 ? '+' : ''}
-            {tempoPct}%)
-          </span>
-        </span>
-        <button
-          onClick={() => onTempo(1)}
-          disabled={tempoKey.tempoRatio === 1}
-          className="rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
-          title="Reset tempo"
-        >
-          ↺
-        </button>
-      </div>
-
-      <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
-        <span className="text-muted">Key</span>
-        <button
-          onClick={() => onSemitones(tempoKey.semitones - 1)}
-          disabled={tempoKey.semitones <= -12}
-          className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
-          title="Down a semitone"
-        >
-          −
-        </button>
-        <span className="w-10 text-center font-mono tabular-nums text-text">
-          {tempoKey.semitones >= 0 ? '+' : ''}
-          {tempoKey.semitones} st
-        </span>
-        <button
-          onClick={() => onSemitones(tempoKey.semitones + 1)}
-          disabled={tempoKey.semitones >= 12}
-          className="h-5 w-5 rounded-md border border-border leading-none hover:text-text disabled:opacity-30"
-          title="Up a semitone"
-        >
-          +
-        </button>
-        {tempoKey.semitones !== 0 && shiftedKey && (
-          <span className="text-muted">→ {shiftedKey}</span>
-        )}
-        <button
-          onClick={() => onSemitones(0)}
-          disabled={tempoKey.semitones === 0}
-          className="ml-0.5 rounded-md px-1 text-muted hover:text-text disabled:opacity-30"
-          title="Reset key"
-        >
-          ↺
-        </button>
-      </div>
-    </>
   )
 }
 
@@ -268,14 +124,8 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   const project = useStudioStore((s) => s.project)
   const stemKinds = useStudioStore((s) => s.stemKinds)
   const playing = useStudioStore((s) => s.playing)
-  const countingIn = useStudioStore((s) => s.countingIn)
   const duration = useStudioStore((s) => s.duration)
-  const beatGridOffsetSec = useStudioStore((s) => s.beatGridOffsetSec)
-  const metronome = useStudioStore((s) => s.metronome)
-  const countIn = useStudioStore((s) => s.countIn)
   const exportOpen = useStudioStore((s) => s.exportOpen)
-  const laneW = useStudioStore((s) => s.laneW)
-  const laneH = useStudioStore((s) => s.laneH)
 
   // Load the song into the store on mount; dispose (flush save + tear down the
   // engine) on unmount. StrictMode's double-invoke is handled by the store's
@@ -300,8 +150,8 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     return () => cancelAnimationFrame(raf)
   }, [playing])
 
-  // Measure the lane region for the overlay (grid + playhead). Resize events
-  // outpace frames while the window edge is dragged — coalesce to one per frame.
+  // Measure the lane region for the playhead overlay. Resize events outpace
+  // frames while the window edge is dragged — coalesce to one per frame.
   useEffect(() => {
     const el = overlayRef.current
     if (!el) return
@@ -328,8 +178,6 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     if (rect.width === 0) return
     useStudioStore.getState().seek(((e.clientX - rect.left) / rect.width) * duration)
   }
-
-  const nudge = (deltaSec: number): void => useStudioStore.getState().nudge(deltaSec)
 
   // --- Loop ruler drag: create / move / resize a single region --------------
   const timeFromRulerX = (clientX: number): number => {
@@ -412,178 +260,128 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
   }
 
   const features = project?.features
-  const hasGrid = !!features && features.beatTimes.length > 0
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-4 border-b border-border px-6 py-4">
+      <header className="flex items-center gap-3 px-5 py-4">
         <button
           onClick={onBack}
-          className="rounded-full border border-border px-3 py-1.5 text-sm text-muted hover:text-text"
+          className="rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium text-muted hover:border-accent hover:text-text"
         >
           ← Library
         </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold">{project?.title ?? 'Loading…'}</h1>
-          {features && (
-            <p className="text-xs text-muted">
-              {features.bpm ? `${Math.round(features.bpm)} BPM` : 'BPM —'}
-              {' · '}
-              {features.key ?? 'Key —'}
-            </p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <h1 className="truncate text-base font-semibold">{project?.title ?? 'Loading…'}</h1>
+          {project?.title && features && (
+            <span className="shrink-0 text-sm text-muted">
+              {(project.source.type === 'youtube' && project.source.channel) || ''}
+            </span>
           )}
+        </div>
+        {features && (
+          <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+            {features.bpm != null && (
+              <span className="rounded-full bg-wash-powder px-2.5 py-1 text-xs font-semibold tabular-nums text-charcoal">
+                {Math.round(features.bpm)} BPM
+              </span>
+            )}
+            {features.key && (
+              <span className="rounded-full bg-wash-lavender px-2.5 py-1 text-xs font-semibold text-charcoal">
+                {features.key}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setLyricsOpen((v) => !v)}
+            className="rounded-full border px-3.5 py-2 text-sm font-medium transition-colors"
+            style={{
+              background: lyricsOpen ? 'var(--color-charcoal)' : 'var(--color-surface)',
+              borderColor: lyricsOpen ? 'var(--color-charcoal)' : 'var(--color-border)',
+              color: lyricsOpen ? '#fff' : 'var(--color-muted)'
+            }}
+            title="Show synced lyrics"
+          >
+            Lyrics
+          </button>
+          <OutputButton />
+          <button
+            onClick={() => useStudioStore.getState().openExport()}
+            className="rounded-full bg-charcoal px-4 py-2 text-sm font-medium text-white hover:bg-charcoal-hover"
+            title="Export stems, mixdown, minus-one, or a click track"
+          >
+            Export
+          </button>
         </div>
       </header>
 
-      {loading && <div className="p-6 text-sm text-muted">Decoding stems…</div>}
-      {error && <div className="p-6 text-sm text-stem-vocals">{error}</div>}
+      {loading && <StudioSkeleton />}
+      {error && <div className="p-6 text-sm text-danger">{error}</div>}
 
       {!loading && !error && (
         <>
-          <div className="flex items-center gap-4 border-b border-border px-6 py-4">
-            <button
-              onClick={() => void useStudioStore.getState().togglePlay()}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-lg text-white hover:bg-accent-hover"
-              aria-label={countingIn ? 'Cancel count-in' : playing ? 'Pause' : 'Play'}
-            >
-              {countingIn ? '…' : playing ? '❚❚' : '▶'}
-            </button>
-            <TransportScrubber />
+          {/* Lanes = the hero, in one rounded card (+ optional lyrics panel). */}
+          <div className="flex min-h-0 flex-1 gap-4 px-5 pb-2">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-3xl border border-border bg-surface">
+              <div className="flex-1 overflow-y-auto">
+                <div className="relative min-h-full">
+                  {/* Loop ruler — drag to create, grab an edge to resize, body to move. */}
+                  <div
+                    className="absolute top-0 z-10 flex items-center justify-end px-2 text-[10px] font-semibold uppercase tracking-wide text-fog"
+                    style={{ left: 0, width: GUTTER, height: RULER_H }}
+                  >
+                    Loop
+                  </div>
+                  <div
+                    ref={rulerRef}
+                    onPointerDown={onRulerPointerDown}
+                    className="absolute top-0 z-10 cursor-pointer border-b border-l border-border bg-surface-2"
+                    style={{ left: GUTTER, right: 0, height: RULER_H }}
+                    title="Drag to set a loop region"
+                  >
+                    <LoopBand variant="ruler" />
+                    <Playhead variant="ruler" />
+                  </div>
 
-            {hasGrid && (
-              <div className="flex items-center gap-1.5 rounded-full border border-border px-2 py-1 text-xs text-muted">
-                <span className="mr-0.5">Grid</span>
-                <button
-                  onClick={() => nudge(-0.01)}
-                  className="h-5 w-5 rounded-md border border-border leading-none hover:text-text"
-                  title="Nudge grid earlier (−10 ms)"
-                >
-                  −
-                </button>
-                <span className="w-14 text-center font-mono tabular-nums text-text">
-                  {beatGridOffsetSec >= 0 ? '+' : ''}
-                  {Math.round(beatGridOffsetSec * 1000)} ms
-                </span>
-                <button
-                  onClick={() => nudge(0.01)}
-                  className="h-5 w-5 rounded-md border border-border leading-none hover:text-text"
-                  title="Nudge grid later (+10 ms)"
-                >
-                  +
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-            <TempoKeyControls />
-
-            <LoopControls />
-
-            <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs">
-              <button
-                onClick={() => useStudioStore.getState().toggleMetronome()}
-                className="rounded-md px-1.5 py-0.5 font-medium"
-                style={{
-                  background: metronome ? 'var(--color-accent)' : 'transparent',
-                  color: metronome ? '#fff' : undefined
-                }}
-                title="Metronome click on every beat"
-              >
-                Metronome
-              </button>
-              <button
-                onClick={() => useStudioStore.getState().toggleCountIn()}
-                className="rounded-md px-1.5 py-0.5 font-medium"
-                style={{
-                  background: countIn ? 'var(--color-accent)' : 'transparent',
-                  color: countIn ? '#fff' : undefined
-                }}
-                title="Count in one bar before playback"
-              >
-                Count-in
-              </button>
-            </div>
-
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={() => setLyricsOpen((v) => !v)}
-                className="rounded-full border border-border px-3 py-1.5 text-sm font-medium"
-                style={{
-                  background: lyricsOpen ? 'var(--color-accent)' : 'transparent',
-                  color: lyricsOpen ? '#fff' : undefined
-                }}
-                title="Show synced lyrics"
-              >
-                Lyrics
-              </button>
-              <button
-                onClick={() => useStudioStore.getState().openExport()}
-                className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
-                title="Export stems, mixdown, minus-one, or a click track"
-              >
-                Export
-              </button>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1">
-            <div className="flex-1 overflow-y-auto">
-              <div className="relative min-h-full">
-                {/* Loop ruler — drag to create, grab an edge to resize, body to move. */}
-                <div
-                  className="absolute top-0 z-10 flex items-center justify-end px-2 text-[10px] uppercase tracking-wide text-muted"
-                  style={{ left: 0, width: GUTTER, height: RULER_H }}
-                >
-                  Loop
-                </div>
-                <div
-                  ref={rulerRef}
-                  onPointerDown={onRulerPointerDown}
-                  className="absolute top-0 z-10 cursor-pointer border-b border-l border-border bg-surface/60"
-                  style={{ left: GUTTER, right: 0, height: RULER_H }}
-                  title="Drag to set a loop region"
-                >
-                  <LoopBand variant="ruler" />
-                  <Playhead variant="ruler" />
-                </div>
-
-                <div style={{ paddingTop: RULER_H }}>
-                  {stemKinds.map((kind) => (
-                    <div key={kind} className="flex items-stretch border-b border-border/40">
-                      <StemRow kind={kind} />
+                  <div style={{ paddingTop: RULER_H }}>
+                    {stemKinds.map((kind) => (
                       <div
-                        className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface/40"
-                        onClick={seekFromLane}
+                        key={kind}
+                        className="animate-rise flex items-stretch border-b border-border/70 last:border-b-0"
                       >
-                        <LaneWaveform kind={kind} />
+                        <StemRow kind={kind} />
+                        <div
+                          className="relative h-20 flex-1 cursor-pointer border-l border-border bg-surface-2/50"
+                          onClick={seekFromLane}
+                        >
+                          <LaneWaveform kind={kind} />
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
 
-                {/* Loop band + beat grid + playhead, spanning only the lane column. */}
-                <div
-                  ref={overlayRef}
-                  className="pointer-events-none absolute"
-                  style={{ top: RULER_H, bottom: 0, left: GUTTER, right: 0 }}
-                >
-                  <LoopBand variant="lane" />
-                  {hasGrid && (
-                    <BeatGrid
-                      beatTimes={features.beatTimes}
-                      downbeatTimes={features.downbeatTimes}
-                      offsetSec={beatGridOffsetSec}
-                      durationSec={duration}
-                      width={laneW}
-                      height={laneH}
-                    />
-                  )}
-                  <Playhead variant="lane" />
+                  {/* Loop band + playhead, spanning only the lane column. Offset
+                      by the lane's 1px left border so the playhead lines up
+                      exactly with the waveform pixels (and the ruler playhead,
+                      which sits inside the ruler's matching border). */}
+                  <div
+                    ref={overlayRef}
+                    className="pointer-events-none absolute"
+                    style={{ top: RULER_H, bottom: 0, left: GUTTER + 1, right: 0 }}
+                  >
+                    <LoopBand variant="lane" />
+                    <Playhead variant="lane" />
+                  </div>
                 </div>
               </div>
             </div>
             {lyricsOpen && <Lyrics onClose={() => setLyricsOpen(false)} />}
+          </div>
+
+          {/* Bottom HUD dock — everything rhythmic lives here. */}
+          <div className="shrink-0 px-5 pb-5 pt-1">
+            <TransportDock />
           </div>
 
           {exportOpen && <ExportPanel />}

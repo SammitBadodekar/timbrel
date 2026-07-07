@@ -73,13 +73,14 @@ pulled out to its own device(s) · **Tag** = a named group of devices.
 - [ ] **Scrubber seek** — drag the transport slider → playhead jumps; current-time + duration read
       as `m:ss`.
 - [ ] **Seek from lane** — click anywhere on a waveform lane → playback seeks there.
-- [ ] **Grid nudge** (only if beats detected) — **−** / **+** shift the grid in **±10 ms** steps; the
-      `±N ms` readout updates and the beat lines move.
+- [ ] **No beat grid** — the lanes are clean waveforms with **no beat-grid lines** and **no grid-nudge
+      control** in the dock (the grid feature was removed in v0.6).
 
 ## 6. Studio — tempo & key
 
-- [ ] **Tempo** — slider spans **50%–150%**; readout shows effective **BPM** + `(±N%)`; audio
-      speeds/slows with **pitch preserved**.
+- [ ] **Tempo** — a **−/+ stepper with a typeable field** (shows **BPM** when known, else **%**):
+      click **−/+** to nudge by 1%, or type a value and press **Enter**; audio speeds/slows with
+      **pitch preserved**. Range clamps to **50%–150%**.
 - [ ] **Tempo reset** — **↺** returns to 100% (disabled when already 100%).
 - [ ] **Key** — **−** / **+** shift by **1 semitone**, clamped **−12…+12**; **pitch shifts, tempo
       preserved**; readout shows `±N st` (+ transposed key if known).
@@ -108,14 +109,18 @@ pulled out to its own device(s) · **Tag** = a named group of devices.
 - [ ] **Mute (M)** — mutes that stem; button turns red.
 - [ ] **Solo (S)** — only soloed stems are audible; the rest **dim to 50%**.
 - [ ] **Volume** — the per-stem slider (0–1) changes only that stem's level.
-- [ ] **Beat grid** — faint lines per beat (brighter on downbeats) overlay the lanes; the **playhead**
-      line tracks playback.
-- [ ] **Inline routing dropdown** — each stem has an output picker under its fader (tested in §13).
+- [ ] **Playhead** — the playhead line tracks playback across the lanes (no beat-grid lines — removed).
+- [ ] **Inline routing dropdown** — each stem has an output picker under its fader; opening it shows a
+      **solid, readable menu** that isn't clipped by the lanes card (tested in §13).
 
 ## 10. Studio — lyrics
 
 - [ ] **Open** — **Lyrics** button opens the right-side panel (badge shows `synced|plain · source`).
-- [ ] **Synced highlight** — the current line **bolds and auto-scrolls to center** as playback moves.
+- [ ] **Full screen** — the **⤢** button in the panel header opens a **full-screen lyrics reader**
+      (large centered lines, active line highlighted + auto-scrolled); **Exit full screen** or **Esc**
+      returns to the studio.
+- [ ] **Synced highlight** — the current line **bolds and auto-scrolls to center** as playback moves
+      (in both the panel and the full-screen reader).
 - [ ] **Click to seek** — clicking a synced line **seeks** to that lyric's time.
 - [ ] **Plain fallback** — a plain-lyrics track shows static text (no highlight, no seek).
 - [ ] **None** — a track with no match shows **"No lyrics found for this track…"**.
@@ -144,8 +149,8 @@ pulled out to its own device(s) · **Tag** = a named group of devices.
 
 ## 12. Persistence
 
-- [ ] **Studio state survives reload** — change mixer (gain/mute/solo), tempo, key, loop and grid
-      nudge → leave & reopen the song → **all restored**.
+- [ ] **Studio state survives reload** — change mixer (gain/mute/solo), tempo, key and loop → leave &
+      reopen the song → **all restored**.
 - [ ] **Ephemeral resets** — metronome and count-in are **OFF** after reopening.
 - [ ] **Instant waveforms** — reopening a song renders waveforms immediately (cached peaks).
 - [ ] **Lyrics cached** — a previously-fetched song shows lyrics without re-fetching.
@@ -234,6 +239,71 @@ rig"** applied to whatever song is open.
 - [ ] Search/download error → red banner + per-row **Retry**.
 - [ ] Studio load error → red inline message.
 - [ ] Export failure → red **"Export failed: …"** in the modal.
+
+## 15. Home — light UI, omnibox, shelf (v0.6)
+
+> The Library + Search screens merged into one **Home**. §1/§2/§3/§4 above still apply, but the
+> "🔍 Search & download" button is gone (search is now the omnibox) and the library is a **list**.
+
+- [ ] **Light theme** — the whole app is the light "Geniestudio" look (pale sky canvas, bone cards,
+      charcoal pill buttons, iris-blue accent). No dark surfaces remain.
+- [ ] **Omnibox search** — type a song + **Enter** (or **Search**) → results replace the page; **✕**
+      (or Esc) clears back to Home.
+- [ ] **Add a file** — the **Add a file** link opens the native audio picker → imports as before.
+- [ ] **Drag & drop** — drop an audio file anywhere on Home → a "Drop to add & separate" overlay
+      appears, and on drop the file imports.
+- [ ] **Track list** — songs are **rows** (monogram art, title/artist, pastel **BPM** + **key** chips,
+      duration right). Hovering a row reveals a **+ Playlist** button.
+- [ ] **Continuous loader** — an importing track shows **one forward-only bar** in its row with the
+      active step named ("Separating stems · step 3 of 5") and **"approx 30 sec"** — the bar never
+      resets when the stage changes.
+- [ ] **Output pill** — the header **🔊** pill shows the current default target and opens the routing
+      panel (same panel as before, now light).
+
+## 16. Playlists (v0.6)
+
+- [ ] **Create** — the dashed **New playlist** card → inline name → **Enter** creates it and opens it.
+- [ ] **Add from a row** — hover a track → **+ Playlist** → pick a playlist (or create one) → a
+      **"Added to …"** toast appears; the playlist's count goes up.
+- [ ] **Card** — each playlist shows a **2×2 mosaic cover** (from its tracks' art), name, and
+      `N tracks · M min`.
+- [ ] **Rename** — the card **⋯ → Rename** (or click the title in the detail view) renames in place.
+- [ ] **Open detail** — clicking a card opens the playlist: cover, name, its tracks as rows.
+- [ ] **Reorder** — drag a track within the detail list → the new order persists across reopen.
+- [ ] **Remove a track** — hover a row in the detail → **Remove** → it leaves the playlist **but stays
+      in the library** (check §15).
+- [ ] **Delete playlist** — card **⋯ → Delete** or the detail's **Delete playlist** → confirm →
+      the playlist is gone **but every track it held is still in the library**. ⭐
+- [ ] **Open a track** — clicking a track row in the detail opens it in the Studio; **← Library**
+      returns to **that playlist** (not Home).
+
+## 17. Delete & multi-select (v0.6)
+
+- [ ] **Select** — hover a track → a checkbox appears; click it → the row tints and a floating
+      **bulk bar** ("N selected") appears. Clicking a row body while selecting toggles it.
+- [ ] **Select many** — check several; the count updates. **✕** or **Esc** clears the selection.
+- [ ] **Bulk add to playlist** — with 2+ selected → **+ Add to playlist** → pick/create → all are
+      added; the selection clears.
+- [ ] **Bulk delete** — **Delete** → confirm → the tracks vanish from the library and from any
+      playlists that held them (the playlists stay).
+- [ ] **Delete removes audio** — a deleted track no longer opens; re-importing the same file/video
+      re-separates it from scratch (its on-disk folder was removed).
+
+## 18. v0.6 polish additions
+
+- [ ] **Song artwork** — a YouTube-imported track shows its **thumbnail** as row art (Home + playlist
+      detail); a local upload (no thumbnail) shows the pastel **monogram**. A broken/offline image
+      falls back to the monogram, never a broken-image icon.
+- [ ] **Playlist covers** — a playlist's card + detail cover is a **2×2 mosaic** of its tracks'
+      artwork (monogram where a track has none).
+- [ ] **Tempo type-or-step** — in the dock, tempo is a **−/+ stepper with a typeable field** (BPM when
+      known); type a value + Enter, or click ±. (Slider is gone.)
+- [ ] **Lyrics full screen** — **⤢** opens the full-screen reader; the **transport HUD floats** over it
+      so you can play / seek / change tempo without leaving; **Esc** / Exit returns.
+- [ ] **Studio skeleton** — opening a song shows a **shimmering skeleton** of the lanes + dock while it
+      decodes, not a bare "Decoding…" line.
+- [ ] **Playlist multi-select** — in a playlist, select multiple tracks (checkbox / row click), then
+      **Add to playlist** or **Remove** via the bulk bar; **Select all** in the Tracks header.
 
 ---
 

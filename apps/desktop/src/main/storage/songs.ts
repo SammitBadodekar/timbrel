@@ -1,5 +1,5 @@
 /** Song repository — maps the `songs` table to `@timbrel/core` domain types. */
-import type { DetectedFeatures, Song } from '@timbrel/core'
+import { youtubeThumbnailUrl, type DetectedFeatures, type Song } from '@timbrel/core'
 import { getDb } from './db'
 import type { SongSummary } from '../../shared/ipc'
 
@@ -38,6 +38,7 @@ interface SummaryRow {
   key: string | null
   created_at: string
   separated_at: string | null
+  youtube_id: string | null
 }
 
 export function insert(song: Song): void {
@@ -80,7 +81,8 @@ export function list(): SongSummary[] {
     .prepare(
       `SELECT id, title, artist, duration_sec, created_at, separated_at,
               json_extract(features_json, '$.bpm') AS bpm,
-              json_extract(features_json, '$.key') AS "key"
+              json_extract(features_json, '$.key') AS "key",
+              json_extract(source_json, '$.youtubeId') AS youtube_id
          FROM songs ORDER BY created_at DESC`
     )
     .all() as SummaryRow[]
@@ -92,8 +94,15 @@ export function list(): SongSummary[] {
     bpm: row.bpm,
     key: row.key,
     separated: row.separated_at != null,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    thumbnailUrl: row.youtube_id ? youtubeThumbnailUrl(row.youtube_id) : null
   }))
+}
+
+/** Remove a song's index row. FK cascade drops its `playlist_songs` rows too;
+ *  the on-disk folder is deleted separately by the caller. */
+export function remove(id: string): void {
+  getDb().prepare('DELETE FROM songs WHERE id = ?').run(id)
 }
 
 export function markSeparated(

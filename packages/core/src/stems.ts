@@ -28,14 +28,29 @@ export const STEM_LABELS: Record<StemKind, string> = {
 };
 
 /**
- * Per-stem accent colors for the studio's color-coding. Tuned for a
- * dark-first, pro-audio surface; adjust alongside the design pass (v0.4).
+ * Per-stem accent colors for the studio's color-coding. Recalibrated for the
+ * light "Geniestudio" surface (v0.6 design pass): saturated enough to carry a
+ * waveform on a pale ground, but not neon. The old violet lives on as `bass`.
  */
 export const STEM_COLORS: Record<StemKind, string> = {
-  vocals: "#ff5c7a",
-  drums: "#ffab3d",
-  bass: "#8b7bff",
-  guitar: "#33d69f",
-  piano: "#4db8ff",
-  other: "#9aa0aa",
+  vocals: "#e8446d",
+  drums: "#e08a00",
+  bass: "#7c5cff",
+  guitar: "#0da678",
+  piano: "#0d9bdc",
+  other: "#8a919c",
+};
+
+/**
+ * Per-stem pastel wash — the soft tint that pairs with each accent hue. Used as
+ * chip / dot / hover-state backgrounds so a stem reads the same everywhere
+ * (mixer, library chips, routing). Each is a desaturated cousin of its accent.
+ */
+export const STEM_WASH: Record<StemKind, string> = {
+  vocals: "#fde3ea",
+  drums: "#feefd6",
+  bass: "#f1e6ff",
+  guitar: "#d3f6e3",
+  piano: "#cce7ff",
+  other: "#eceef1",
 };

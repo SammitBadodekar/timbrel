@@ -165,11 +165,11 @@ function ExportPanel(): React.JSX.Element | null {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm"
       onClick={() => !busy && onClose()}
     >
       <div
-        className="max-h-[90vh] w-[min(560px,94vw)] overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-2xl"
+        className="max-h-[90vh] w-[min(560px,94vw)] overflow-y-auto rounded-3xl border border-border bg-surface p-6 shadow-[var(--shadow-dock)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -358,7 +358,7 @@ function ExportPanel(): React.JSX.Element | null {
           <button
             onClick={runExport}
             disabled={busy || !!invalidReason}
-            className="rounded-full bg-accent px-5 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+            className="rounded-full bg-charcoal px-5 py-2 text-sm font-medium text-white hover:bg-charcoal-hover disabled:opacity-40"
           >
             {busy ? 'Exporting…' : 'Export'}
           </button>

@@ -1,26 +1,51 @@
 @import 'tailwindcss';
 
 /*
- * Timbrel studio theme — dark-first, pro-audio (Ableton / Arc / Moises lineage):
- * deep neutral background, one vivid accent, per-stem color coding.
- * (The marketing site uses the separate light "Geniestudio" language.)
+ * Timbrel theme — v0.6 "Geniestudio" light system (DESIGN.md), now the whole
+ * app (desktop + marketing share one language). A pale sky canvas hosts
+ * near-monochrome ink UI; the charcoal pill is the only dense element and iris
+ * blue the only accent. Personality comes from the six per-stem hues + their
+ * pastel washes, and from chunky, toy-like controls.
  */
 @theme {
-  --color-bg: #0b0d10;
-  --color-surface: #14171c;
-  --color-surface-2: #1b1f26;
-  --color-border: #262b33;
-  --color-text: #e7eaee;
-  --color-muted: #9aa0aa;
-  --color-accent: #7c5cff;
-  --color-accent-hover: #8f74ff;
+  /* Surfaces & ink */
+  --color-bg: #ebf5ff; /* sky canvas */
+  --color-surface: #fafdff; /* bone card */
+  --color-surface-2: #eef4fb; /* deeper surface — inputs, track rows */
+  --color-border: #dde7f1; /* soft hairline */
+  --color-text: #0a0d12; /* ink */
+  --color-muted: #6b7280; /* graphite — readable on light */
+  --color-fog: #99a1ad; /* low-emphasis helper text */
+  --color-accent: #0069e0; /* iris blue */
+  --color-accent-hover: #0a5cc4;
+  --color-charcoal: #181d27; /* the dense CTA fill */
+  --color-charcoal-hover: #262d3a;
+  --color-danger: #d13c4b;
 
-  --color-stem-vocals: #ff5c7a;
-  --color-stem-drums: #ffab3d;
-  --color-stem-bass: #8b7bff;
-  --color-stem-guitar: #33d69f;
-  --color-stem-piano: #4db8ff;
-  --color-stem-other: #9aa0aa;
+  /* Pastel washes — chips, tiles, soft emphasis */
+  --color-wash-lavender: #f1e6ff;
+  --color-wash-mint: #d3f6e3;
+  --color-wash-powder: #cce7ff;
+  --color-wash-solar: #fff2be;
+  --color-wash-peach: #ffd1b8;
+
+  /* Per-stem hues + washes — kept in sync with @timbrel/core STEM_COLORS/WASH */
+  --color-stem-vocals: #e8446d;
+  --color-stem-drums: #e08a00;
+  --color-stem-bass: #7c5cff;
+  --color-stem-guitar: #0da678;
+  --color-stem-piano: #0d9bdc;
+  --color-stem-other: #8a919c;
+
+  --color-wash-vocals: #fde3ea;
+  --color-wash-drums: #feefd6;
+  --color-wash-bass: #f1e6ff;
+  --color-wash-guitar: #d3f6e3;
+  --color-wash-piano: #cce7ff;
+  --color-wash-other: #eceef1;
+
+  --shadow-card: 0 14px 30px -18px rgba(4, 69, 144, 0.28);
+  --shadow-dock: 0 18px 34px -18px rgba(4, 69, 144, 0.35);
 
   --font-sans:
     'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -38,7 +63,122 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+}
+
+/* Softer, on-brand scrollbars in the scroll regions (library, lanes, lyrics). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c3d3e4 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #c3d3e4;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #a9bed3;
+  background-clip: content-box;
+}
+
+/* ---- Gamified motion (Tier 1 "feel"). All guarded below for reduced-motion. ---- */
+@keyframes timbrel-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes timbrel-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes timbrel-count-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 105, 224, 0.5);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(0, 105, 224, 0);
+  }
+}
+@keyframes timbrel-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-pop {
+  animation: timbrel-pop 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-rise {
+  animation: timbrel-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.animate-count {
+  animation: timbrel-count-pulse 0.6s ease-in-out infinite;
+}
+
+/* A moving highlight on the import progress bar, so a stalled-looking stage
+ * still reads as "working". */
+.progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.progress-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: timbrel-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Loading-skeleton block: a neutral surface with a sweeping shimmer. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-surface-2);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: timbrel-shimmer 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop,
+  .animate-rise,
+  .animate-count,
+  .progress-shimmer::after,
+  .skeleton::after {
+    animation: none;
+  }
+  .animate-pop,
+  .animate-rise {
+    opacity: 1;
+    transform: none;
+  }
 }

@@ -3,7 +3,8 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { basename, extname, join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { mkdir, copyFile, writeFile, readFile } from 'node:fs/promises'
+import { mkdir, copyFile, writeFile, readFile, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import {
   createProjectFile,
   emptyFeatures,
@@ -27,6 +28,7 @@ import {
 } from '../shared/ipc'
 import type { SidecarManager } from './sidecar/manager'
 import * as songs from './storage/songs'
+import * as playlists from './storage/playlists'
 import * as settings from './storage/settings'
 import { hashFile, songIdFromHash, songIdFromSpotify, songIdFromYoutube } from './lib/hash'
 import { songDir, stemsDir, projectPath, peaksPath, lyricsPath, stemPath } from './lib/paths'
@@ -97,6 +99,58 @@ export function registerIpc(sidecar: SidecarManager): void {
   )
 
   ipcMain.handle(IpcChannel.ListSongs, async () => songs.list())
+
+  ipcMain.handle(IpcChannel.DeleteSong, async (_event, songId: string): Promise<void> => {
+    // Drop the index row first (FK cascade clears playlist memberships), then
+    // remove the on-disk folder and any session caches keyed by this song.
+    songs.remove(songId)
+    projectCache.delete(songId)
+    clearProgress(songId)
+    await rm(songDir(songId), { recursive: true, force: true })
+  })
+
+  ipcMain.handle(IpcChannel.PlaylistList, async () => playlists.list())
+
+  ipcMain.handle(IpcChannel.PlaylistGet, async (_event, playlistId: string) =>
+    playlists.get(playlistId)
+  )
+
+  ipcMain.handle(IpcChannel.PlaylistCreate, async (_event, name: string) => {
+    const id = `pl_${randomUUID()}`
+    playlists.create(id, name.trim() || 'New playlist')
+    // Return the fresh summary so the renderer can select it immediately.
+    return playlists.list().find((p) => p.id === id)!
+  })
+
+  ipcMain.handle(
+    IpcChannel.PlaylistRename,
+    async (_event, playlistId: string, name: string): Promise<void> => {
+      playlists.rename(playlistId, name.trim() || 'Untitled playlist')
+    }
+  )
+
+  ipcMain.handle(
+    IpcChannel.PlaylistDelete,
+    async (_event, playlistId: string): Promise<void> => playlists.remove(playlistId)
+  )
+
+  ipcMain.handle(
+    IpcChannel.PlaylistAddSongs,
+    async (_event, playlistId: string, songIds: string[]): Promise<void> =>
+      playlists.addSongs(playlistId, songIds)
+  )
+
+  ipcMain.handle(
+    IpcChannel.PlaylistRemoveSong,
+    async (_event, playlistId: string, songId: string): Promise<void> =>
+      playlists.removeSong(playlistId, songId)
+  )
+
+  ipcMain.handle(
+    IpcChannel.PlaylistReorder,
+    async (_event, playlistId: string, orderedSongIds: string[]): Promise<void> =>
+      playlists.reorder(playlistId, orderedSongIds)
+  )
 
   ipcMain.handle(IpcChannel.LoadProject, async (_event, songId: string) => loadProject(songId))
 
@@ -261,6 +315,24 @@ async function startYoutubeImport(
     return { ok: true, songId, alreadyExists: true }
   }
 
+  // Insert the library row NOW (before the background download) — like a local
+  // upload — so the track shows in the library as "processing" the moment the
+  // import starts, instead of popping in only after separation finishes.
+  if (!existing) {
+    const { title, artist } = parseTrackFromYouTube(video.title, video.channel)
+    songs.insert({
+      id: songId,
+      title,
+      artist,
+      durationSec: video.durationSec,
+      contentHash: null,
+      source: { type: 'youtube', youtubeId: video.id, channel: video.channel },
+      features: emptyFeatures(),
+      createdAt: new Date().toISOString(),
+      separatedAt: null
+    })
+  }
+
   void runYoutubeImportJob(sidecar, songId, video)
   return { ok: true, songId, alreadyExists: false }
 }
@@ -270,8 +342,9 @@ async function runYoutubeImportJob(
   songId: string,
   video: YtCandidate
 ): Promise<void> {
-  // Clean the noisy video title into a proper title/artist for the library + lyrics.
-  const { title, artist } = parseTrackFromYouTube(video.title, video.channel)
+  // Title was cleaned + the row inserted in startYoutubeImport; here we just
+  // acquire the audio and hand off to the shared separation pipeline.
+  const { title } = parseTrackFromYouTube(video.title, video.channel)
   try {
     await mkdir(songDir(songId), { recursive: true })
 
@@ -279,20 +352,6 @@ async function runYoutubeImportJob(
     const originalPath = await downloadYtAudio(video.id, songDir(songId), (progress) =>
       broadcastProgress(songId, 'downloading', progress)
     )
-
-    if (!songs.get(songId)) {
-      songs.insert({
-        id: songId,
-        title,
-        artist,
-        durationSec: video.durationSec,
-        contentHash: null,
-        source: { type: 'youtube', youtubeId: video.id, channel: video.channel },
-        features: emptyFeatures(),
-        createdAt: new Date().toISOString(),
-        separatedAt: null
-      })
-    }
 
     await runSeparationJob(sidecar, songId, originalPath, title)
   } catch (err) {

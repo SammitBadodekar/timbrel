@@ -1,11 +1,13 @@
 /**
- * The Audio Output control center (DECISIONS.md → UI): a gear launcher + modal
- * that owns the global routing rig. Works with no song loaded, since the seven
- * routable channels (six stems + click) are universal. Reads/writes the global
- * `routingStore`; its edits push straight to whatever engine is live.
+ * The Audio Output control center (DECISIONS.md → UI): owns the global routing
+ * rig. Works with no song loaded, since the seven routable channels (six stems +
+ * click) are universal. Reads/writes the global `routingStore`; its edits push
+ * straight to whatever engine is live.
  *
- * The per-stem inline pickers (StemRow) edit the same rig — this panel is the
- * full matrix + device tagging + the reset escape hatch.
+ * v0.6: the launcher is a labeled pill placed in each screen's header
+ * (`OutputButton`), and the modal (`OutputPanel`) is rendered once at the app
+ * root, opened via `useUiStore`. The per-stem inline pickers (StemRow) edit the
+ * same rig — this panel is the full matrix + device tagging + reset.
  */
 import { useMemo, useState } from 'react'
 import {
@@ -18,7 +20,19 @@ import {
   type RoutableChannel
 } from '@timbrel/core'
 import { useRoutingStore } from '../store/routingStore'
+import { useUiStore } from '../store/uiStore'
 import OutputPicker from './OutputPicker'
+
+/** Short label for the header pill — the current default target, summarised. */
+function useDefaultTargetLabel(): string {
+  const targets = useRoutingStore((s) => s.rig.defaultTarget)
+  if (targets.length === 0 || targets.every((t) => t.type === 'system')) return 'System default'
+  if (targets.length > 1) return `${targets.length} outputs`
+  const t = targets[0]!
+  if (t.type === 'tag') return `#${t.tag}`
+  if (t.type === 'device') return t.label || 'Custom output'
+  return 'System default'
+}
 
 const CHANNEL_LABEL = (ch: RoutableChannel): string =>
   ch === 'click' ? 'Metronome / click' : STEM_LABELS[ch]
@@ -103,24 +117,30 @@ function Panel({ onClose }: { onClose: () => void }): React.JSX.Element {
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-[520px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
+        className="animate-pop flex max-h-[85vh] w-[540px] flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-[var(--shadow-dock)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Audio Output</h2>
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🔊</span>
+            <h2 className="text-base font-semibold">Audio output</h2>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => useRoutingStore.getState().reset()}
-              className="rounded-md border border-border px-2.5 py-1 text-xs text-muted hover:text-text"
+              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted hover:border-accent hover:text-text"
               title="Clear the default target + every override back to System Default"
             >
               Reset
             </button>
-            <button onClick={onClose} className="rounded-md px-2 py-1 text-muted hover:text-text">
+            <button
+              onClick={onClose}
+              className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text"
+            >
               ✕
             </button>
           </div>
@@ -193,7 +213,7 @@ function Panel({ onClose }: { onClose: () => void }): React.JSX.Element {
           </section>
 
           {split && (
-            <div className="mt-4 rounded-md border border-stem-drums/40 bg-stem-drums/10 px-3 py-2 text-xs text-stem-drums">
+            <div className="mt-4 rounded-2xl border border-stem-drums/40 bg-wash-drums px-3.5 py-2.5 text-xs font-medium text-stem-drums">
               ⚠ Stems are split across different devices. If any is wireless (Bluetooth), those
               stems will drift out of sync with the others.
             </div>
@@ -204,20 +224,27 @@ function Panel({ onClose }: { onClose: () => void }): React.JSX.Element {
   )
 }
 
-function AudioOutput(): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+/**
+ * The header launcher pill. Shows where the mix is currently going, so routing
+ * reads as a first-class feature rather than a stray floating button.
+ */
+export function OutputButton({ className = '' }: { className?: string }): React.JSX.Element {
+  const label = useDefaultTargetLabel()
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-3 right-3 z-30 rounded-md border border-border bg-surface/80 px-3 py-1.5 text-xs font-semibold backdrop-blur hover:bg-surface-2"
-        title="Audio output routing"
-      >
-        🔊 Output
-      </button>
-      {open && <Panel onClose={() => setOpen(false)} />}
-    </>
+    <button
+      onClick={() => useUiStore.getState().openOutput()}
+      className={`inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium text-muted hover:border-accent hover:text-text ${className}`}
+      title="Audio output routing"
+    >
+      <span aria-hidden>🔊</span>
+      <span className="max-w-[10rem] truncate">{label}</span>
+    </button>
   )
 }
 
-export default AudioOutput
+/** The modal, rendered once at the app root; visibility driven by `useUiStore`. */
+export function OutputPanel(): React.JSX.Element | null {
+  const open = useUiStore((s) => s.outputOpen)
+  if (!open) return null
+  return <Panel onClose={() => useUiStore.getState().closeOutput()} />
+}

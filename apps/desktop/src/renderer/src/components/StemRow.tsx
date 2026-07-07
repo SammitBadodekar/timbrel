@@ -31,13 +31,14 @@ function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
     >
       <div className="flex items-center gap-2">
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
-        <span className="flex-1 truncate text-sm font-medium">{STEM_LABELS[kind]}</span>
+        <span className="flex-1 truncate text-sm font-semibold">{STEM_LABELS[kind]}</span>
         <button
           onClick={() => useStudioStore.getState().toggleMute(kind)}
-          className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-bold transition-colors"
           style={{
-            background: controls.muted ? '#ff5c7a' : 'transparent',
-            color: controls.muted ? '#0b0d10' : undefined
+            background: controls.muted ? 'var(--color-stem-vocals)' : 'var(--color-surface)',
+            borderColor: controls.muted ? 'var(--color-stem-vocals)' : 'var(--color-border)',
+            color: controls.muted ? '#fff' : 'var(--color-fog)'
           }}
           title="Mute"
         >
@@ -45,10 +46,11 @@ function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
         </button>
         <button
           onClick={() => useStudioStore.getState().toggleSolo(kind)}
-          className="w-7 shrink-0 rounded-md border border-border py-0.5 text-xs font-semibold"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-bold transition-colors"
           style={{
-            background: controls.soloed ? color : 'transparent',
-            color: controls.soloed ? '#0b0d10' : undefined
+            background: controls.soloed ? color : 'var(--color-surface)',
+            borderColor: controls.soloed ? color : 'var(--color-border)',
+            color: controls.soloed ? '#fff' : 'var(--color-fog)'
           }}
           title="Solo"
         >
@@ -63,7 +65,7 @@ function StemRow({ kind }: { kind: StemKind }): React.JSX.Element {
         step={0.01}
         value={controls.gain}
         onChange={(e) => useStudioStore.getState().setGain(kind, Number(e.target.value))}
-        className="w-full accent-accent"
+        className="w-full accent-charcoal"
         aria-label={`${STEM_LABELS[kind]} volume`}
       />
 

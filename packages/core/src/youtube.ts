@@ -5,6 +5,16 @@
  * and split on the first " - ". Pure and testable.
  */
 
+/**
+ * A YouTube thumbnail URL for a video id. Served straight from YouTube's CDN
+ * (`i.ytimg.com`, allowed by the renderer CSP), so we never download or store
+ * the image — the stable video id is enough to reconstruct it anywhere the
+ * library is shown. `mqdefault` (320×180) is plenty for avatars and covers.
+ */
+export function youtubeThumbnailUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+}
+
 /** Parenthetical/bracketed decorations we drop from a video title. */
 const NOISE =
   /\s*[([](?:official\s*)?(?:music\s*)?(?:lyric|lyrics|audio|video|visualizer|visualiser|hd|4k|mv|m\/v|remaster(?:ed)?|explicit|hq)[^)\]]*[)\]]/gi;
