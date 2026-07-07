@@ -36,6 +36,8 @@ const timbrel: TimbrelApi = {
     ipcRenderer.invoke(IpcChannel.SpotifyPlaylistTracks, playlistId),
   spotifyLikedTracks: () => ipcRenderer.invoke(IpcChannel.SpotifyLiked),
   spotifyImportTrack: (track) => ipcRenderer.invoke(IpcChannel.SpotifyImportTrack, track),
+  spotifyImportTracks: (tracks, playlistName) =>
+    ipcRenderer.invoke(IpcChannel.SpotifyImportTracks, tracks, playlistName),
   youtubeSearch: (query) => ipcRenderer.invoke(IpcChannel.YoutubeSearch, query),
   youtubeImport: (video) => ipcRenderer.invoke(IpcChannel.YoutubeImport, video),
   getLyrics: (songId) => ipcRenderer.invoke(IpcChannel.GetLyrics, songId),

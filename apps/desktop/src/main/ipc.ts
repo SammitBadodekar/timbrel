@@ -77,6 +77,15 @@ export function registerIpc(sidecar: SidecarManager): void {
     }
   )
 
+  ipcMain.handle(
+    IpcChannel.SpotifyImportTracks,
+    async (
+      _event,
+      tracks: SpotifyTrack[],
+      playlistName: string | null
+    ): Promise<StartSeparationResult[]> => startSpotifyImportBatch(sidecar, tracks, playlistName)
+  )
+
   ipcMain.handle(IpcChannel.YoutubeSearch, async (_event, query: string) => {
     const q = query.trim()
     return q ? searchYouTube(q) : []
@@ -227,9 +236,33 @@ async function startSeparation(
 }
 
 /**
- * Import a Spotify track: derive a stable id (dedup), then in the background
- * match it on YouTube, download the audio, and hand off to the same separation
- * pipeline as a local upload. Returns immediately; progress streams over the
+ * Spotify imports run through a serial queue: separation is heavy (one demucs
+ * job at a time is all the machine comfortably fits) and a whole-playlist
+ * import would otherwise fire dozens of concurrent downloads + separations.
+ * `activeImports` prevents re-enqueueing a song that's already queued or
+ * running (e.g. "Import all" clicked twice).
+ */
+let importQueue: Promise<void> = Promise.resolve()
+const activeImports = new Set<string>()
+
+function enqueueSpotifyImport(
+  sidecar: SidecarManager,
+  songId: string,
+  track: SpotifyTrack,
+  playlistId?: string
+): void {
+  if (activeImports.has(songId)) return
+  activeImports.add(songId)
+  importQueue = importQueue
+    .then(() => runSpotifyImportJob(sidecar, songId, track, playlistId))
+    .catch(() => {}) // job errors are broadcast inside the job, never rethrown
+    .finally(() => activeImports.delete(songId))
+}
+
+/**
+ * Import a Spotify track: derive a stable id (dedup), then queue it to match on
+ * YouTube, download the audio, and hand off to the same separation pipeline as
+ * a local upload. Returns immediately; progress streams over the
  * `SeparationEvent` channel keyed by the returned `songId`.
  */
 async function startSpotifyImport(
@@ -244,14 +277,55 @@ async function startSpotifyImport(
     return { ok: true, songId, alreadyExists: true }
   }
 
-  void runSpotifyImportJob(sidecar, songId, track)
+  enqueueSpotifyImport(sidecar, songId, track)
   return { ok: true, songId, alreadyExists: false }
+}
+
+/**
+ * Import a whole Spotify playlist (or Liked Songs): every not-yet-separated
+ * track is queued serially, and when `playlistName` is set the songs are
+ * mirrored into a local playlist of that name — reused if one already exists,
+ * so re-running "Import all" tops up the same playlist instead of duplicating
+ * it. Songs whose rows already exist join the playlist immediately; queued ones
+ * join as their download lands (the membership row needs the song row first).
+ */
+function startSpotifyImportBatch(
+  sidecar: SidecarManager,
+  tracks: SpotifyTrack[],
+  playlistName: string | null
+): StartSeparationResult[] {
+  let playlistId: string | undefined
+  if (playlistName) {
+    const existing = playlists.list().find((p) => p.name === playlistName)
+    if (existing) {
+      playlistId = existing.id
+    } else {
+      playlistId = `pl_${randomUUID()}`
+      playlists.create(playlistId, playlistName)
+    }
+  }
+
+  const enqueued = new Set<string>() // a playlist can hold the same recording twice
+  return tracks.map((track): StartSeparationResult => {
+    const songId = songIdFromSpotify({ isrc: track.isrc, spotifyId: track.id })
+    const existing = songs.get(songId)
+    if (playlistId && existing) playlists.addSongs(playlistId, [songId])
+    if (existing?.separatedAt) {
+      return { ok: true, songId, alreadyExists: true }
+    }
+    if (!enqueued.has(songId)) {
+      enqueued.add(songId)
+      enqueueSpotifyImport(sidecar, songId, track, playlistId)
+    }
+    return { ok: true, songId, alreadyExists: false }
+  })
 }
 
 async function runSpotifyImportJob(
   sidecar: SidecarManager,
   songId: string,
-  track: SpotifyTrack
+  track: SpotifyTrack,
+  playlistId?: string
 ): Promise<void> {
   const title = track.name
   const artist = track.artists.join(', ') || null
@@ -289,6 +363,8 @@ async function runSpotifyImportJob(
         separatedAt: null
       })
     }
+    // Batch imports mirror the Spotify playlist locally — the row exists now.
+    if (playlistId) playlists.addSongs(playlistId, [songId])
 
     await runSeparationJob(sidecar, songId, originalPath, title)
   } catch (err) {

@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog'
 interface HomeProps {
   onOpenSong: (songId: string) => void
   onOpenPlaylist: (playlistId: string) => void
+  onOpenSpotify: () => void
 }
 
 const AUDIO_EXT = /\.(mp3|m4a|wav|flac|ogg|oga|aac|aiff|aif)$/i
@@ -26,7 +27,7 @@ function errMsg(e: unknown): string {
  * takes a dropped/added file, a shelf of playlists, and the full track list with
  * multi-select. Replaces the old separate Library + Search screens.
  */
-function Home({ onOpenSong, onOpenPlaylist }: HomeProps): React.JSX.Element {
+function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.JSX.Element {
   const [songs, setSongs] = useState<SongSummary[]>([])
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([])
   const [jobs, setJobs] = useState<Record<string, JobUi>>({})
@@ -284,9 +285,23 @@ function Home({ onOpenSong, onOpenPlaylist }: HomeProps): React.JSX.Element {
               {/* mini stem-bars mark — same artwork as the app icon (build/icon.svg) */}
               <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
                 <rect x="1.9" y="5" width="2" height="6" rx="1" fill="var(--color-stem-vocals)" />
-                <rect x="5.3" y="3.75" width="2" height="8.5" rx="1" fill="var(--color-stem-drums)" />
+                <rect
+                  x="5.3"
+                  y="3.75"
+                  width="2"
+                  height="8.5"
+                  rx="1"
+                  fill="var(--color-stem-drums)"
+                />
                 <rect x="8.7" y="2.5" width="2" height="11" rx="1" fill="var(--color-stem-bass)" />
-                <rect x="12.1" y="3.5" width="2" height="9" rx="1" fill="var(--color-stem-guitar)" />
+                <rect
+                  x="12.1"
+                  y="3.5"
+                  width="2"
+                  height="9"
+                  rx="1"
+                  fill="var(--color-stem-guitar)"
+                />
               </svg>
             </span>
             <span className="text-lg font-semibold tracking-tight">Timbrel</span>
@@ -344,6 +359,10 @@ function Home({ onOpenSong, onOpenPlaylist }: HomeProps): React.JSX.Element {
               className="font-semibold text-accent hover:underline disabled:opacity-50"
             >
               {busy ? 'Working…' : 'Add a file'}
+            </button>{' '}
+            ·{' '}
+            <button onClick={onOpenSpotify} className="font-semibold text-accent hover:underline">
+              Import from Spotify
             </button>
           </p>
         </div>

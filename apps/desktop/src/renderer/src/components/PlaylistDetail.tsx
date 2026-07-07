@@ -118,7 +118,7 @@ function PlaylistDetail({
   const allSelected = songs.length > 0 && songs.every((s) => selection.has(s.id))
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-6 py-8">
+    <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-6 py-8">
       <button
         onClick={onBack}
         className="mb-6 w-fit rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium text-muted hover:border-accent hover:text-text"

@@ -131,6 +131,49 @@ function SpotifyImport({ onBack, onOpenSong }: SpotifyImportProps): React.JSX.El
     setTracks(null)
   }, [])
 
+  /**
+   * Queue every track in the current view. The main process serializes the
+   * downloads + separations (one at a time) and mirrors the tracks into a
+   * local playlist named after the Spotify one.
+   */
+  const handleImportAll = useCallback(async (list: SpotifyTrack[], playlistName: string) => {
+    setError(null)
+    // Optimistic: every untouched track flips to "queued" the instant the
+    // click lands; the batch result then fills in the real song ids.
+    setTrackSong((m) => {
+      const next = { ...m }
+      for (const t of list) if (!(t.id in next)) next[t.id] = ''
+      return next
+    })
+    try {
+      const results = await window.timbrel.spotifyImportTracks(list, playlistName)
+      const song: Record<string, string> = {}
+      const done: Record<string, true> = {}
+      const queued: string[] = []
+      results.forEach((r, i) => {
+        if (!r.ok) return
+        song[list[i].id] = r.songId
+        if (r.alreadyExists) done[r.songId] = true
+        else queued.push(r.songId)
+      })
+      setTrackSong((m) => ({ ...m, ...song }))
+      setDoneSongs((d) => ({ ...d, ...done }))
+      // Don't clobber a job that's already streaming progress.
+      setJobs((j) => {
+        const next = { ...j }
+        for (const id of queued) if (!next[id]) next[id] = { stage: 'queued', progress: 0 }
+        return next
+      })
+    } catch (e) {
+      setError(errMsg(e))
+      setTrackSong((m) => {
+        const next = { ...m }
+        for (const t of list) if (next[t.id] === '') delete next[t.id]
+        return next
+      })
+    }
+  }, [])
+
   const handleImport = useCallback(async (track: SpotifyTrack) => {
     setError(null)
     // Optimistic: show "queued" the instant the click lands.
@@ -274,6 +317,12 @@ function SpotifyImport({ onBack, onOpenSong }: SpotifyImportProps): React.JSX.El
           jobs={jobs}
           doneSongs={doneSongs}
           onImport={handleImport}
+          onImportAll={(list) =>
+            void handleImportAll(
+              list,
+              selection.kind === 'liked' ? 'Liked Songs' : selection.playlist.name
+            )
+          }
           onOpenSong={onOpenSong}
           onBack={() => {
             setSelection(null)
@@ -525,6 +574,7 @@ function TrackList({
   jobs,
   doneSongs,
   onImport,
+  onImportAll,
   onOpenSong,
   onBack
 }: {
@@ -534,24 +584,46 @@ function TrackList({
   jobs: Record<string, JobUi>
   doneSongs: Record<string, true>
   onImport: (track: SpotifyTrack) => void
+  onImportAll: (tracks: SpotifyTrack[]) => void
   onOpenSong: (songId: string) => void
   onBack: () => void
 }): React.JSX.Element {
+  // Tracks that "Import all" would still act on: untouched, or errored (retry).
+  // Pending clicks, running jobs and finished imports are left alone.
+  const remaining = (tracks ?? []).filter((t) => {
+    const songId = trackSong[t.id]
+    if (songId === undefined) return true
+    if (songId === '') return false
+    if (doneSongs[songId]) return false
+    const job = jobs[songId]
+    return !job || !!job.error
+  })
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-3 flex items-center gap-3">
         <button
           onClick={onBack}
-          className="rounded-full border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-text"
+          className="shrink-0 rounded-full border border-border px-3 py-1.5 text-sm text-muted hover:border-accent hover:text-text"
         >
           ← Playlists
         </button>
-        <h2 className="truncate text-lg font-semibold">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h2>
+        {tracks && tracks.length > 0 && (
+          <button
+            onClick={() => onImportAll(tracks)}
+            disabled={remaining.length === 0}
+            className="shrink-0 rounded-full bg-[#1db954] px-4 py-1.5 text-xs font-semibold text-black hover:bg-[#1ed760] disabled:opacity-60"
+          >
+            {remaining.length === 0 ? 'All imported ✓' : `Import all · ${remaining.length}`}
+          </button>
+        )}
       </div>
 
       <div className="mb-3 rounded-xl border border-border bg-surface px-4 py-2.5 text-xs text-muted">
         Import finds each track on YouTube, downloads the audio, and separates it into stems
-        locally.
+        locally. “Import all” queues every track one-by-one and collects them into a local playlist
+        named “{title}”.
       </div>
 
       {tracks === null ? (

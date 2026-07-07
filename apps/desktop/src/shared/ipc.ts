@@ -51,6 +51,7 @@ export const IpcChannel = {
   SpotifyPlaylistTracks: 'spotify:playlistTracks',
   SpotifyLiked: 'spotify:liked',
   SpotifyImportTrack: 'spotify:importTrack',
+  SpotifyImportTracks: 'spotify:importTracks',
   YoutubeSearch: 'youtube:search',
   YoutubeImport: 'youtube:import',
   GetLyrics: 'lyrics:get',
@@ -241,9 +242,19 @@ export interface TimbrelApi {
    * Match a Spotify track on YouTube, download its audio, and feed it into the
    * separation pipeline. Returns immediately with the song id; progress (match →
    * download → separate) streams over `onSeparationEvent`, keyed by that id.
-   * (Parked — the Spotify import UI was retired; direct search replaced it.)
    */
   spotifyImportTrack(track: SpotifyTrack): Promise<StartSeparationResult>
+  /**
+   * Import a whole batch (a Spotify playlist or Liked Songs) in one call.
+   * Returns a result per track immediately; the acquisition + separation jobs
+   * run serially in the main process (one demucs at a time), streaming progress
+   * over `onSeparationEvent`. When `playlistName` is set the songs are also
+   * collected into a local playlist of that name (created if needed).
+   */
+  spotifyImportTracks(
+    tracks: SpotifyTrack[],
+    playlistName: string | null
+  ): Promise<StartSeparationResult[]>
   /** Search YouTube for songs (metadata only). */
   youtubeSearch(query: string): Promise<YtCandidate[]>
   /**
