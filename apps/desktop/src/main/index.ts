@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { initDb, closeDb } from './storage/db'
 import { registerMediaSchemePrivileges, registerMediaProtocol } from './media'
 import { SidecarManager } from './sidecar/manager'
+import { startSetup } from './setup'
 import { registerIpc } from './ipc'
 
 // Name drives the app-data folder (~/Library/Application Support/Timbrel, etc.).
@@ -67,6 +68,9 @@ app.whenReady().then(() => {
   registerMediaProtocol()
   sidecar = new SidecarManager()
   registerIpc(sidecar)
+  // First-run: download the separation engine + CLI tools (no-op once
+  // installed). The renderer gates the UI on this via the setup:* channels.
+  startSetup()
 
   createWindow()
 

@@ -4,27 +4,16 @@
  * pipe it into ffmpeg to produce the requested container/codec.
  *
  *  - **Dev:** `ffmpeg` from PATH (override with `TIMBREL_FFMPEG`).
- *  - **Prod:** a static ffmpeg unpacked into resources — same download-on-first-
- *    run shape as the sidecar. Wiring the real binary is a v0.4 packaging TODO;
- *    for now prod also falls back to PATH so the feature works in `build:unpack`.
+ *  - **Prod:** a static ffmpeg downloaded on first run into the tools dir
+ *    (setup/tools.ts), like the sidecar engine.
  */
-import { app } from 'electron'
-import { join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { ffmpegCodecArgs, type ExportEncodeSettings } from '@timbrel/core'
+import { resolveTool } from '../setup/tools'
 
-/** Resolve the ffmpeg executable: explicit override → bundled → PATH. */
+/** Resolve the ffmpeg executable: explicit override → installed → PATH. */
 export function resolveFfmpeg(): string {
-  if (process.env.TIMBREL_FFMPEG) return process.env.TIMBREL_FFMPEG
-  // TODO(v0.4): ship a static ffmpeg in resources and download on first run.
-  const bundled = join(
-    process.resourcesPath ?? '',
-    'ffmpeg',
-    process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
-  )
-  if (app.isPackaged && existsSync(bundled)) return bundled
-  return 'ffmpeg'
+  return resolveTool('ffmpeg', 'TIMBREL_FFMPEG')
 }
 
 export interface EncodePcmInput {

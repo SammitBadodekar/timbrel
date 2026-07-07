@@ -4,27 +4,18 @@
  * DECISIONS.md). Spotify import (parked) reuses the download half.
  *
  *  - **Dev:** `yt-dlp` from PATH (override with `TIMBREL_YTDLP`).
- *  - **Prod:** a self-updating `yt-dlp` unpacked into resources — same
- *    download-on-first-run shape as the sidecar/ffmpeg (v0.4 packaging TODO);
- *    for now prod also falls back to PATH.
+ *  - **Prod:** a self-updating `yt-dlp` downloaded on first run into the tools
+ *    dir (setup/tools.ts), like the sidecar engine.
  */
-import { app } from 'electron'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { join } from 'node:path'
 import type { YtCandidate } from '@timbrel/core'
+import { envWithTools, resolveTool } from '../setup/tools'
 
-/** Resolve the yt-dlp executable: explicit override → bundled → PATH. */
+/** Resolve the yt-dlp executable: explicit override → installed → PATH. */
 export function resolveYtDlp(): string {
-  if (process.env.TIMBREL_YTDLP) return process.env.TIMBREL_YTDLP
-  // TODO(v0.4): ship yt-dlp in resources and self-update on first run.
-  const bundled = join(
-    process.resourcesPath ?? '',
-    'yt-dlp',
-    process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
-  )
-  if (app.isPackaged && existsSync(bundled)) return bundled
-  return 'yt-dlp'
+  return resolveTool('yt-dlp', 'TIMBREL_YTDLP')
 }
 
 function ytError(err: NodeJS.ErrnoException): Error {
@@ -71,7 +62,10 @@ function runSearch(query: string, limit: number): Promise<YtCandidate[]> {
     `ytsearch${limit}:${query}`
   ]
   return new Promise((resolve, reject) => {
-    const proc = spawn(resolveYtDlp(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(resolveYtDlp(), args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: envWithTools()
+    })
     let out = ''
     let err = ''
     proc.stdout.on('data', (c: Buffer) => (out += c.toString()))
@@ -134,7 +128,11 @@ export function downloadYtAudio(
     `https://www.youtube.com/watch?v=${youtubeId}`
   ]
   return new Promise((resolve, reject) => {
-    const proc = spawn(resolveYtDlp(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    // `-x` shells out to ffmpeg/ffprobe — the tools dir must be on PATH.
+    const proc = spawn(resolveYtDlp(), args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: envWithTools()
+    })
     let err = ''
     proc.stdout.on('data', (chunk: Buffer) => {
       for (const line of chunk.toString().split('\n')) {

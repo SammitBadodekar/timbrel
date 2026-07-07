@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Home from './components/Home'
 import Studio from './components/Studio'
 import PlaylistDetail from './components/PlaylistDetail'
+import SetupGate from './components/SetupGate'
 import { OutputPanel } from './components/AudioOutput'
 import { useRoutingStore } from './store/routingStore'
 
@@ -10,7 +11,8 @@ import { useRoutingStore } from './store/routingStore'
  * playlist detail, and the Studio — plus the app-wide Audio Output panel
  * (rendered once here, opened from either header). A song opened from within a
  * playlist keeps the playlist selected, so "← Library" in the studio returns to
- * that playlist rather than Home.
+ * that playlist rather than Home. Everything sits behind the first-run
+ * SetupGate until the separation engine is installed.
  */
 function App(): React.JSX.Element {
   const [songId, setSongId] = useState<string | null>(null)
@@ -37,10 +39,10 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <>
+    <SetupGate>
       {content}
       <OutputPanel />
-    </>
+    </SetupGate>
   )
 }
 

@@ -14,7 +14,8 @@ import {
   type SidecarEvent,
   type SidecarRequest
 } from '@timbrel/core'
-import { resolveSidecar } from './resolve'
+import { envWithTools } from '../setup/tools'
+import { isSidecarInstalled, resolveSidecar } from './resolve'
 
 const READY_TIMEOUT_MS = 90_000
 
@@ -29,8 +30,18 @@ export class SidecarManager {
   start(): Promise<void> {
     if (this.readyPromise) return this.readyPromise
 
+    // The UI is gated on the first-run install, so this should be unreachable —
+    // but a clear error beats spawn ENOENT if a job races the installer.
+    if (!isSidecarInstalled()) {
+      return Promise.reject(
+        new Error('The audio engine is still being installed. Try again in a moment.')
+      )
+    }
+
     const { command, args, cwd } = resolveSidecar()
-    const proc = spawn(command, args, { cwd, stdio: 'pipe' })
+    // demucs (inside the engine) shells out to ffmpeg/ffprobe to decode input
+    // audio — make sure the first-run installed tools are on its PATH.
+    const proc = spawn(command, args, { cwd, stdio: 'pipe', env: envWithTools() })
     this.proc = proc
     this.rl = createInterface({ input: proc.stdout })
     this.rl.on('line', (line) => this.onLine(line))

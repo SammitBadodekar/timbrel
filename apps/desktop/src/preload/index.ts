@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IpcChannel, type SeparationEvent, type TimbrelApi } from '../shared/ipc'
+import { IpcChannel, type SeparationEvent, type SetupState, type TimbrelApi } from '../shared/ipc'
 
 const timbrel: TimbrelApi = {
   pickAudioFile: () => ipcRenderer.invoke(IpcChannel.PickAudio),
@@ -41,6 +41,13 @@ const timbrel: TimbrelApi = {
   getLyrics: (songId) => ipcRenderer.invoke(IpcChannel.GetLyrics, songId),
   getRoutingRig: () => ipcRenderer.invoke(IpcChannel.GetRoutingRig),
   saveRoutingRig: (rig) => ipcRenderer.invoke(IpcChannel.SaveRoutingRig, rig),
+  getSetupState: () => ipcRenderer.invoke(IpcChannel.SetupState),
+  retrySetup: () => ipcRenderer.invoke(IpcChannel.SetupRetry),
+  onSetupState: (cb) => {
+    const listener = (_event: IpcRendererEvent, payload: SetupState): void => cb(payload)
+    ipcRenderer.on(IpcChannel.SetupEvent, listener)
+    return () => ipcRenderer.removeListener(IpcChannel.SetupEvent, listener)
+  },
   onSeparationEvent: (cb) => {
     const listener = (_event: IpcRendererEvent, payload: SeparationEvent): void => cb(payload)
     ipcRenderer.on(IpcChannel.SeparationEvent, listener)

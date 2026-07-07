@@ -9,9 +9,9 @@
  */
 import { app } from 'electron'
 import { join } from 'node:path'
-import { execFile } from 'node:child_process'
-import { createWriteStream, mkdirSync, existsSync, chmodSync, rmSync, writeFileSync } from 'node:fs'
-import { get as httpsGet } from 'node:https'
+import { mkdirSync, existsSync, chmodSync, rmSync, writeFileSync } from 'node:fs'
+import { download, extractArchive } from '../setup/net'
+import type { SetupItem } from '../setup/tools'
 import { __sidecarVersion } from './version'
 
 export interface SidecarLaunch {
@@ -72,65 +72,28 @@ export function resolveSidecar(): SidecarLaunch {
   return { command: frozenBinaryPath(), args: [] }
 }
 
-export type DownloadStage = 'downloading' | 'extracting'
+/** The frozen engine as a first-run setup step (setup/index.ts runs it). */
+export function sidecarSetupItem(): SetupItem {
+  const approxMB = 200
+  return {
+    label: 'audio engine',
+    approxMB,
+    installed: isSidecarInstalled,
+    async install(onProgress) {
+      const dir = installDir()
+      mkdirSync(dir, { recursive: true })
+      const archive = join(dir, 'sidecar.tar.gz')
 
-/** Download + unpack the frozen sidecar on first run. No-op in dev. */
-export async function ensureSidecar(
-  onProgress: (progress: number, stage: DownloadStage) => void
-): Promise<void> {
-  if (!app.isPackaged || isSidecarInstalled()) return
+      await download(`${RELEASE_BASE}/${platformAsset()}`, archive, (received, total) =>
+        onProgress(total ? received / total : 0, 'downloading')
+      )
 
-  const dir = installDir()
-  mkdirSync(dir, { recursive: true })
-  const archive = join(dir, 'sidecar.tar.gz')
+      onProgress(1, 'extracting')
+      await extractArchive(archive, dir)
+      rmSync(archive, { force: true })
 
-  onProgress(0, 'downloading')
-  await download(`${RELEASE_BASE}/${platformAsset()}`, archive, (p) => onProgress(p, 'downloading'))
-
-  onProgress(1, 'extracting')
-  await extractTarGz(archive, dir)
-  rmSync(archive, { force: true })
-
-  if (process.platform !== 'win32') chmodSync(frozenBinaryPath(), 0o755)
-  writeFileSync(installMarker(), new Date().toISOString())
-}
-
-function download(
-  url: string,
-  dest: string,
-  onProgress: (progress: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const request = httpsGet(url, (res) => {
-      const status = res.statusCode ?? 0
-      if (status >= 300 && status < 400 && res.headers.location) {
-        res.resume()
-        download(res.headers.location, dest, onProgress).then(resolve, reject)
-        return
-      }
-      if (status !== 200) {
-        res.resume()
-        reject(new Error(`sidecar download failed (HTTP ${status})`))
-        return
-      }
-      const total = Number(res.headers['content-length'] ?? 0)
-      let received = 0
-      const file = createWriteStream(dest)
-      res.on('data', (chunk: Buffer) => {
-        received += chunk.length
-        if (total) onProgress(received / total)
-      })
-      res.pipe(file)
-      file.on('finish', () => file.close(() => resolve()))
-      file.on('error', reject)
-    })
-    request.on('error', reject)
-  })
-}
-
-/** Extract with the platform `tar` (bsdtar ships on Windows 10+, macOS, Linux). */
-function extractTarGz(archive: string, destDir: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('tar', ['-xzf', archive, '-C', destDir], (err) => (err ? reject(err) : resolve()))
-  })
+      if (process.platform !== 'win32') chmodSync(frozenBinaryPath(), 0o755)
+      writeFileSync(installMarker(), new Date().toISOString())
+    }
+  }
 }

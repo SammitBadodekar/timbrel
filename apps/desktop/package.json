@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Timbrel — local-first stem separation & multitrack studio",
   "main": "./out/main/index.js",
   "author": "Timbrel",

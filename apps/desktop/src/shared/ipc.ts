@@ -55,8 +55,33 @@ export const IpcChannel = {
   YoutubeImport: 'youtube:import',
   GetLyrics: 'lyrics:get',
   GetRoutingRig: 'routing:get',
-  SaveRoutingRig: 'routing:save'
+  SaveRoutingRig: 'routing:save',
+  SetupState: 'setup:state',
+  SetupEvent: 'setup:event',
+  SetupRetry: 'setup:retry'
 } as const
+
+/**
+ * First-run install state — the frozen stem-separation engine plus the CLI
+ * tools (yt-dlp, ffmpeg/ffprobe) are downloaded on first launch so the
+ * installer stays small. The renderer blocks the whole UI behind a setup
+ * screen until this reaches `ready`.
+ */
+export type SetupState =
+  | {
+      status: 'installing'
+      /** Human label of what's installing — "audio engine", "YouTube downloader"… */
+      item: string
+      /** Rough download size, for the "x% of ~N MB" hint. */
+      approxMB: number
+      /** 1-based position among the items this run still has to install. */
+      step: number
+      steps: number
+      stage: 'downloading' | 'extracting'
+      progress: number
+    }
+  | { status: 'ready' }
+  | { status: 'error'; message: string }
 
 export interface StartSeparationInput {
   filePath: string
@@ -233,4 +258,10 @@ export interface TimbrelApi {
   getRoutingRig(): Promise<RoutingRig>
   /** Persist the global routing rig. */
   saveRoutingRig(rig: RoutingRig): Promise<void>
+  /** Current first-run install state (engine + tools). */
+  getSetupState(): Promise<SetupState>
+  /** Subscribe to install state changes; returns an unsubscribe function. */
+  onSetupState(cb: (state: SetupState) => void): () => void
+  /** Re-attempt a failed install (e.g. after a network error). */
+  retrySetup(): Promise<void>
 }
