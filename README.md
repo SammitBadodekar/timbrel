@@ -4,7 +4,7 @@
 
 Timbrel is a free, open-source desktop studio that splits music into six stems — vocals, drums, bass, guitar, piano & other — then hands you the mixing desk: mute your part and play it yourself, loop the hard bars, bend tempo and key, and follow synced lyrics. Fully local: no cloud, no account, nothing leaves your device.
 
-**Website:** [timbrel.app](https://timbrel.app) · **License:** [MIT](./LICENSE)
+**Website:** [timbrel.samz.in](https://timbrel.samz.in) · **License:** [MIT](./LICENSE)
 
 ![The Timbrel studio — six stem lanes with waveforms, mute/solo/volume per stem, and a transport dock with tempo, key, loop, click and count-in](./apps/web/src/assets/studio.png)
 
@@ -44,7 +44,7 @@ The Electron app auto-detects `sidecar/.venv` in dev. See [`sidecar/README.md`](
 | Path | What it is |
 | --- | --- |
 | `apps/desktop` | The app — Electron + React + Tailwind, Zustand stores, Web Audio engine |
-| `apps/web` | [timbrel.app](https://timbrel.app) — Astro single page, deployed on Cloudflare Workers |
+| `apps/web` | [timbrel.samz.in](https://timbrel.samz.in) — Astro single page, deployed on Cloudflare Workers |
 | `sidecar` | Python separation engine — Demucs + librosa, spoken to over line-delimited JSON |
 | `packages/core` | Shared TypeScript types (incl. the sidecar protocol) |
 | `packages/ui` | Shared UI utilities |

@@ -5,5 +5,11 @@
   // Static site served from Workers Assets — no worker script needed.
   "assets": {
     "directory": "./dist"
-  }
+  },
+  "routes": [
+    {
+      "pattern": "timbrel.samz.in",
+      "custom_domain": true
+    }
+  ]
 }
