@@ -1,159 +1,56 @@
-# Turborepo starter
+# Timbrel
 
-This Turborepo starter is maintained by the Turborepo core team.
+**Turn any song into your backing band.**
 
-## Using this example
+Timbrel is a free, open-source desktop studio that splits music into six stems — vocals, drums, bass, guitar, piano & other — then hands you the mixing desk: mute your part and play it yourself, loop the hard bars, bend tempo and key, and follow synced lyrics. Fully local: no cloud, no account, nothing leaves your device.
 
-Run the following command:
+**Website:** [timbrel.app](https://timbrel.app) · **License:** [MIT](./LICENSE)
 
-```sh
-npx create-turbo@latest
-```
+![The Timbrel studio — six stem lanes with waveforms, mute/solo/volume per stem, and a transport dock with tempo, key, loop, click and count-in](./apps/web/src/assets/studio.png)
 
-## What's inside?
+## What it does
 
-This Turborepo includes the following packages/apps:
+- **Six stems from any song** — Demucs (`htdemucs_6s`) runs on your own GPU or Apple Silicon; a typical song separates in about 30 seconds, with BPM and key detected on the way.
+- **Search YouTube, or drop a file** — one omnibox: find any song via yt-dlp, or drag in your own mp3 / wav / flac / m4a.
+- **Practice tools** — per-stem mute/solo/volume, loop regions, real-time tempo and key (semitone) shifting, metronome click and count-in.
+- **Synced lyrics** — fetched automatically from LRCLIB, scrolling with the playhead.
+- **Multi-device output routing** — send any stem (or the click) to any output device: click to the drummer's in-ears, vocals to the singer's headphones, the rest to the PA.
+- **Playlists & export** — group songs into setlists; export stems, mixdowns, minus-one versions or click tracks, all FLAC.
 
-### Apps and Packages
+Your library lives in plain files on disk — FLAC stems and a local SQLite database. Only YouTube search and lyrics need the network; everything else works offline.
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+## Build from source
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+Prerequisites: **Node 22+**, **pnpm 9**, **Python 3.11** (3.13 won't work — Demucs' dependencies lack wheels), and `ffmpeg` on PATH for compressed inputs.
 
 ```sh
-cd my-turborepo
-turbo build
+git clone https://github.com/SammitBadodekar/timbrel
+cd timbrel && pnpm install
+
+# one-time: the Python separation engine
+cd sidecar
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cd ..
+
+# run the desktop app
+pnpm --filter desktop dev
 ```
 
-Without global `turbo`, use your package manager:
+The Electron app auto-detects `sidecar/.venv` in dev. See [`sidecar/README.md`](./sidecar/README.md) for the stdio protocol and engine details.
 
-```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
-```
+## How it's put together
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+| Path | What it is |
+| --- | --- |
+| `apps/desktop` | The app — Electron + React + Tailwind, Zustand stores, Web Audio engine |
+| `apps/web` | [timbrel.app](https://timbrel.app) — Astro single page, deployed on Cloudflare Workers |
+| `sidecar` | Python separation engine — Demucs + librosa, spoken to over line-delimited JSON |
+| `packages/core` | Shared TypeScript types (incl. the sidecar protocol) |
+| `packages/ui` | Shared UI utilities |
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+Standing on excellent open-source shoulders: [Demucs](https://github.com/adefossez/demucs), [yt-dlp](https://github.com/yt-dlp/yt-dlp), [LRCLIB](https://lrclib.net), [SoundTouch](https://codeberg.org/soundtouch/soundtouch), [Electron](https://www.electronjs.org).
 
-```sh
-turbo build --filter=docs
-```
+## License
 
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+[MIT](./LICENSE) © Sammit Badodekar

@@ -1,0 +1,445 @@
+---
+// The hero toy: a miniature studio. Six stem lanes with generated waveforms,
+// a sweeping playhead, and working mute/solo toggles. Visual only — no audio.
+const stems = [
+  { id: "vocals", name: "Vocals" },
+  { id: "drums", name: "Drums" },
+  { id: "bass", name: "Bass" },
+  { id: "guitar", name: "Guitar" },
+  { id: "piano", name: "Piano" },
+  { id: "other", name: "Other" },
+];
+---
+
+<div class="toy" id="stem-toy">
+  <div class="toy-top">
+    <button class="play" id="toy-play" aria-label="Pause the playhead" aria-pressed="true">
+      <svg class="ic-pause" width="14" height="14" viewBox="0 0 14 14" fill="#fff">
+        <rect x="2.2" y="1.5" width="3.4" height="11" rx="1.4"></rect>
+        <rect x="8.4" y="1.5" width="3.4" height="11" rx="1.4"></rect>
+      </svg>
+      <svg class="ic-play" width="14" height="14" viewBox="0 0 14 14" fill="#fff">
+        <path d="M3.4 1.8c0-.9 1-1.5 1.8-1L12 5.9c.8.5.8 1.7 0 2.2l-6.8 5.1c-.8.5-1.8-.1-1.8-1V1.8z"></path>
+      </svg>
+    </button>
+    <span class="toy-title">Your song here</span>
+    <span class="toy-chips">
+      <span class="chip powder num">117 BPM</span>
+      <span class="chip lav">A major</span>
+      <span class="chip mint num">6 stems</span>
+    </span>
+  </div>
+
+  <div class="lanes">
+    <div class="playhead" aria-hidden="true"></div>
+    {
+      stems.map((stem) => (
+        <div class="lane" data-stem={stem.id}>
+          <div class="gutter">
+            <span class="dot" style={`background: var(--stem-${stem.id})`} />
+            <b>{stem.name}</b>
+            <span class="ms">
+              <button class="ms-btn mute" data-action="mute" aria-pressed="false" aria-label={`Mute ${stem.name}`}>
+                M
+              </button>
+              <button class="ms-btn solo" data-action="solo" aria-pressed="false" aria-label={`Solo ${stem.name}`}>
+                S
+              </button>
+            </span>
+          </div>
+          <div class="wave">
+            <svg viewBox="0 0 600 56" preserveAspectRatio="none" aria-hidden="true" />
+          </div>
+        </div>
+      ))
+    }
+  </div>
+
+  <p class="toy-caption" id="toy-caption" aria-live="polite">
+    This is the studio in miniature — <b>M</b> mutes a stem, <b>S</b> solos it.
+  </p>
+</div>
+
+<style>
+  .toy {
+    background: var(--bone);
+    border: 1px solid var(--border);
+    border-radius: var(--r-frame);
+    padding: 18px 18px 8px;
+    box-shadow: var(--shadow-frame);
+  }
+
+  .toy-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 2px 6px 14px;
+  }
+  .play {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--charcoal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    box-shadow: 0 1px 2px rgba(10, 13, 18, 0.5);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .play:hover {
+    transform: scale(1.06);
+  }
+  .play:active {
+    transform: scale(0.94);
+  }
+  .play .ic-play {
+    display: none;
+    margin-left: 2px;
+  }
+  .toy.paused .play .ic-play {
+    display: block;
+  }
+  .toy.paused .play .ic-pause {
+    display: none;
+  }
+  .toy-title {
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.015em;
+  }
+  .toy-chips {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  .lanes {
+    position: relative;
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .lane {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--border);
+  }
+  .lane:last-child {
+    border-bottom: 0;
+  }
+  .gutter {
+    width: 168px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 12px;
+    border-right: 1px solid var(--border);
+  }
+  .gutter b {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .ms {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+  .ms-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    color: var(--fog);
+    background: var(--paper);
+    transition:
+      transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .ms-btn:hover {
+    transform: scale(1.12);
+    color: var(--graphite);
+  }
+  .ms-btn.on {
+    background: var(--charcoal);
+    border-color: var(--charcoal);
+    color: #fff;
+  }
+
+  .wave {
+    flex: 1;
+    height: 56px;
+    min-width: 0;
+  }
+  .wave svg {
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.3s ease;
+  }
+  .lane.muted .wave svg {
+    opacity: 0.16;
+  }
+  .lane.muted .gutter b,
+  .lane.muted .gutter .dot {
+    opacity: 0.45;
+  }
+
+  .playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 168px;
+    width: 1.5px;
+    background: var(--ink);
+    opacity: 0.85;
+    z-index: 2;
+    animation: sweep 26s linear infinite;
+    will-change: transform;
+    pointer-events: none;
+  }
+  @keyframes sweep {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(calc((100vw - 224px) * 1));
+    }
+  }
+  .toy.paused .playhead {
+    animation-play-state: paused;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .playhead {
+      animation: none;
+      left: 40%;
+    }
+  }
+
+  .toy-caption {
+    text-align: center;
+    color: var(--fog);
+    font-size: 13.5px;
+    margin: 12px 0 10px;
+    min-height: 1.5em;
+  }
+  .toy-caption b {
+    color: var(--graphite);
+    font-weight: 600;
+  }
+
+  @media (max-width: 640px) {
+    .toy {
+      padding: 12px 12px 6px;
+    }
+    .gutter {
+      width: 118px;
+      gap: 6px;
+      padding: 0 8px;
+    }
+    .gutter b {
+      font-size: 11.5px;
+    }
+    .ms-btn {
+      width: 21px;
+      height: 21px;
+      font-size: 9px;
+    }
+    .playhead {
+      left: 118px;
+    }
+    .toy-chips .chip:nth-child(n + 2) {
+      display: none;
+    }
+    .wave {
+      height: 46px;
+    }
+  }
+</style>
+
+<script>
+  // ---- deterministic waveforms, one flavour per stem ----------------------
+  const mulberry32 = (seed: number) => () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  // envelope in 0..1 for bar i of n, per stem personality
+  const envelopes: Record<string, (t: number, i: number, r: () => number) => number> = {
+    vocals: (t, _i, r) => {
+      if (t < 0.08 || (t > 0.46 && t < 0.53)) return 0; // intro + breakdown tacet
+      const phrase = Math.sin(t * 44) > -0.25 ? 1 : 0.05; // sung phrases with breaths
+      return phrase * (0.45 + 0.5 * r());
+    },
+    drums: (t, i, r) => {
+      if (t < 0.13) return 0; // drums wait for verse
+      const accent = i % 4 === 0 ? 1 : i % 2 === 0 ? 0.55 : 0.3;
+      return accent * (0.55 + 0.4 * r());
+    },
+    bass: (t, i, r) => {
+      if (t < 0.13) return 0;
+      const note = 0.35 + 0.45 * mulberry32(Math.floor(t * 18) * 71)(); // held notes
+      return note + 0.12 * r();
+    },
+    guitar: (t, _i, r) => {
+      if (t < 0.02) return 0;
+      const strum = 0.35 + 0.3 * Math.sin(t * 26) + 0.1 * Math.sin(t * 90);
+      const lift = t > 0.62 ? 0.25 : 0; // the solo
+      return Math.max(0.08, strum + lift + 0.18 * r());
+    },
+    piano: (t, _i, r) => {
+      const cluster = Math.sin(t * 20 + 2) > 0.45 ? 1 : 0; // sparse chords
+      return cluster * (0.25 + 0.35 * r());
+    },
+    other: (t, _i, r) => 0.2 + 0.18 * Math.sin(t * 12) + 0.12 * r(), // the pad underneath
+  };
+
+  const NS = "http://www.w3.org/2000/svg";
+  const BARS = 132;
+  const W = 600;
+  const H = 56;
+
+  document.querySelectorAll<HTMLElement>("#stem-toy .lane").forEach((lane, laneIndex) => {
+    const stem = lane.dataset.stem!;
+    const svg = lane.querySelector("svg")!;
+    const rand = mulberry32(laneIndex * 1013 + 7);
+    const color = getComputedStyle(document.documentElement).getPropertyValue(`--stem-${stem}`).trim();
+
+    const midline = document.createElementNS(NS, "rect");
+    midline.setAttribute("x", "0");
+    midline.setAttribute("y", String(H / 2 - 0.5));
+    midline.setAttribute("width", String(W));
+    midline.setAttribute("height", "1");
+    midline.setAttribute("fill", color);
+    midline.setAttribute("opacity", "0.35");
+    svg.appendChild(midline);
+
+    const step = W / BARS;
+    for (let i = 0; i < BARS; i++) {
+      const t = i / BARS;
+      const env = Math.min(1, Math.max(0, envelopes[stem](t, i, rand)));
+      const h = Math.max(1.5, env * (H - 10));
+      const bar = document.createElementNS(NS, "rect");
+      bar.setAttribute("x", String(i * step + step * 0.18));
+      bar.setAttribute("y", String(H / 2 - h / 2));
+      bar.setAttribute("width", String(step * 0.64));
+      bar.setAttribute("height", String(h));
+      bar.setAttribute("rx", "1.4");
+      bar.setAttribute("fill", color);
+      svg.appendChild(bar);
+    }
+  });
+
+  // ---- mute / solo logic ---------------------------------------------------
+  const toy = document.getElementById("stem-toy")!;
+  const caption = document.getElementById("toy-caption")!;
+  const lanes = [...toy.querySelectorAll<HTMLElement>(".lane")];
+
+  const quips: Record<string, string> = {
+    vocals: "Vocals off — grab the mic.",
+    drums: "Drums off — you’re the drummer now.",
+    bass: "No bass. Hold it down.",
+    guitar: "Guitar’s gone. Your solo.",
+    piano: "Piano’s out — the keys are yours.",
+    other: "Lost the kitchen sink.",
+  };
+  const names: Record<string, string> = {
+    vocals: "vocals",
+    drums: "drums",
+    bass: "bass",
+    guitar: "guitar",
+    piano: "piano",
+    other: "everything else",
+  };
+
+  const state = new Map(lanes.map((lane) => [lane.dataset.stem!, { muted: false, solo: false }]));
+
+  const render = () => {
+    const soloed = [...state.entries()].filter(([, s]) => s.solo).map(([id]) => id);
+    for (const lane of lanes) {
+      const id = lane.dataset.stem!;
+      const s = state.get(id)!;
+      const audible = soloed.length > 0 ? soloed.includes(id) : !s.muted;
+      lane.classList.toggle("muted", !audible);
+      const mute = lane.querySelector<HTMLButtonElement>(".mute")!;
+      const solo = lane.querySelector<HTMLButtonElement>(".solo")!;
+      mute.classList.toggle("on", s.muted);
+      mute.setAttribute("aria-pressed", String(s.muted));
+      solo.classList.toggle("on", s.solo);
+      solo.setAttribute("aria-pressed", String(s.solo));
+    }
+
+    const mutedIds = [...state.entries()].filter(([, s]) => s.muted).map(([id]) => id);
+    if (soloed.length === 1) {
+      caption.innerHTML = `Just the <b>${names[soloed[0]]}</b>. Ear-training mode.`;
+    } else if (soloed.length > 1) {
+      caption.innerHTML = `A band of ${soloed.length}. Curate away.`;
+    } else if (mutedIds.length === lanes.length) {
+      caption.innerHTML = "Silence. Very avant-garde.";
+    } else if (mutedIds.length === 1) {
+      caption.innerHTML = quips[mutedIds[0]];
+    } else if (mutedIds.length > 1) {
+      caption.innerHTML = `${mutedIds.length} stems down. Karaoke night.`;
+    } else {
+      caption.innerHTML = "This is the studio in miniature — <b>M</b> mutes a stem, <b>S</b> solos it.";
+    }
+  };
+
+  toy.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".ms-btn");
+    if (!btn) return;
+    const lane = btn.closest<HTMLElement>(".lane")!;
+    const s = state.get(lane.dataset.stem!)!;
+    if (btn.dataset.action === "mute") s.muted = !s.muted;
+    else s.solo = !s.solo;
+    render();
+  });
+
+  // ---- play / pause the sweep ----------------------------------------------
+  const play = document.getElementById("toy-play")!;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    toy.classList.add("paused");
+  }
+  play.addEventListener("click", () => {
+    const paused = toy.classList.toggle("paused");
+    play.setAttribute("aria-pressed", String(!paused));
+    play.setAttribute("aria-label", paused ? "Resume the playhead" : "Pause the playhead");
+  });
+
+  // keep the sweep width honest: animate across the actual lanes width
+  const lanesEl = toy.querySelector<HTMLElement>(".lanes")!;
+  const playhead = toy.querySelector<HTMLElement>(".playhead")!;
+  const sizeSweep = () => {
+    const gutter = toy.querySelector<HTMLElement>(".gutter")!.offsetWidth;
+    playhead.style.left = `${gutter}px`;
+    playhead.style.setProperty("--sweep-distance", `${lanesEl.clientWidth - gutter - 2}px`);
+  };
+  sizeSweep();
+  window.addEventListener("resize", sizeSweep);
+</script>
+
+<style is:global>
+  /* the sweep distance is measured in JS from the real lane width */
+  #stem-toy .playhead {
+    animation-name: sweep-real;
+  }
+  @keyframes sweep-real {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(var(--sweep-distance, 70vw));
+    }
+  }
+</style>

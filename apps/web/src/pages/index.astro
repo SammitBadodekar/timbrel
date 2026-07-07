@@ -1,0 +1,856 @@
+---
+import { Image } from "astro:assets";
+import StemToy from "../components/StemToy.astro";
+import "../styles/global.css";
+
+import shotStudio from "../assets/studio.png";
+import shotHome from "../assets/home.png";
+import shotLyrics from "../assets/studio-lyrics.png";
+import shotOutput from "../assets/studio-output.png";
+
+const REPO = "https://github.com/SammitBadodekar/timbrel";
+const RELEASES = `${REPO}/releases`;
+const TITLE = "Timbrel — turn any song into your backing band";
+const DESCRIPTION =
+  "Free, open-source desktop studio that splits any song into six stems — vocals, drums, bass, guitar, piano & other. Mute your part, loop the hard bars, bend tempo and key, and play along. Fully local: no cloud, no account, nothing leaves your device.";
+
+const features = [
+  {
+    wash: "var(--wash-powder)",
+    title: "Six stems from any song",
+    body: "A neural network unmixes the recording into vocals, drums, bass, guitar, piano and everything else — each on its own lane with mute, solo and volume.",
+    chips: [
+      { dot: "var(--stem-vocals)", bg: "var(--stem-vocals-wash)", label: "Vocals" },
+      { dot: "var(--stem-drums)", bg: "var(--stem-drums-wash)", label: "Drums" },
+      { dot: "var(--stem-bass)", bg: "var(--stem-bass-wash)", label: "Bass" },
+      { dot: "var(--stem-guitar)", bg: "var(--stem-guitar-wash)", label: "Guitar" },
+      { dot: "var(--stem-piano)", bg: "var(--stem-piano-wash)", label: "Piano" },
+      { dot: "var(--stem-other)", bg: "var(--stem-other-wash)", label: "Other" },
+    ],
+  },
+  {
+    wash: "var(--wash-solar)",
+    title: "Search YouTube, or drop a file",
+    body: "One omnibox: type any song and Timbrel finds it on YouTube and pulls the audio, or drag in your own mp3, wav, flac or m4a. Either way it lands separated in your library.",
+  },
+  {
+    wash: "var(--wash-mint)",
+    title: "Practice tools that count you in",
+    body: "Loop the tricky four bars, slow them down without changing pitch, transpose to your key in semitones — with a metronome click and count-in when you’re ready.",
+  },
+  {
+    wash: "var(--wash-lavender)",
+    title: "Lyrics that follow the song",
+    body: "Synced lyrics arrive automatically from LRCLIB and scroll with the playhead, karaoke-style. Mute the vocals and the words are all yours.",
+  },
+  {
+    wash: "var(--wash-peach)",
+    title: "Route stems to different speakers",
+    body: "Send the click to the drummer’s in-ears, vocals to the singer’s headphones and everything else to the PA — every stem can target a different output device.",
+  },
+  {
+    wash: "var(--wash-powder)",
+    title: "Setlists in, stems out",
+    body: "Group songs into playlists for rehearsals and gigs. Export separated stems, a full mixdown, a minus-one version without your part, or a click track — all FLAC.",
+  },
+];
+
+const steps = [
+  {
+    n: "01",
+    title: "Add a song",
+    body: "Search YouTube from the omnibox or drop an audio file anywhere on the window.",
+  },
+  {
+    n: "02",
+    title: "Timbrel takes it apart",
+    body: "The separation model runs on your own GPU or Apple Silicon — a typical song takes about 30 seconds, and BPM and key are detected on the way.",
+  },
+  {
+    n: "03",
+    title: "Practice in the studio",
+    body: "Mute yourself out of the mix, loop the hard part, drop the tempo, follow the lyrics. The song becomes your rehearsal room.",
+  },
+  {
+    n: "04",
+    title: "Take it with you",
+    body: "Export stems, mixdowns, minus-one mixes or click tracks and use them anywhere else.",
+  },
+];
+
+const faqs = [
+  {
+    q: "Is it really free?",
+    a: "Yes. Timbrel is MIT-licensed open source. There is no account, no subscription, no pro tier, and no usage cap — because nothing runs on anyone’s servers. The only cost is your own electricity.",
+  },
+  {
+    q: "How does the stem separation work?",
+    a: "Timbrel runs Demucs (the htdemucs_6s model, from Meta’s audio research) locally through a bundled Python engine, accelerated by your GPU or Apple Silicon. YouTube audio arrives via yt-dlp, and the app itself is built with Electron. It stands on excellent open-source shoulders.",
+  },
+  {
+    q: "Which platforms does it run on?",
+    a: "Timbrel is built for macOS, Windows and Linux, developed and tested on macOS first. Until packaged releases land, you can build it from source in a few commands — the README walks you through it.",
+  },
+  {
+    q: "Do I need an internet connection?",
+    a: "Only for YouTube search and fetching lyrics. Separation, playback, practice tools and export are fully offline — your library keeps working on a plane.",
+  },
+  {
+    q: "Is downloading from YouTube allowed?",
+    a: "Timbrel is a practice tool: it fetches audio so you can rehearse along with it, like a smarter record player. Stick to content you have the rights to use, and support the artists you practice to.",
+  },
+  {
+    q: "Where do my files live?",
+    a: "In plain folders on your disk: FLAC stems, artwork and a small local SQLite database. No proprietary vault — delete the app and your music is still just files.",
+  },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{TITLE}</title>
+    <meta name="description" content={DESCRIPTION} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://timbrel.app/" />
+    <meta name="theme-color" content="#ebf5ff" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={TITLE} />
+    <meta property="og:description" content={DESCRIPTION} />
+    <meta property="og:url" content="https://timbrel.app/" />
+    <meta property="og:image" content="https://timbrel.app/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preload" href="/fonts/GeistVF.woff" as="font" type="font/woff" crossorigin />
+  </head>
+
+  <body>
+    <!-- ================= NAV ================= -->
+    <header class="wrap nav">
+      <a class="brand" href="#top">
+        <i><span></span></i>
+        Timbrel
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#open-source">Open source</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="pill pill-ghost gh" href={REPO}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+            ></path>
+          </svg>
+          GitHub
+        </a>
+        <a class="pill pill-dark" href={RELEASES}>Download</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ================= HERO ================= -->
+      <section class="wrap hero">
+        <div class="hero-badges">
+          <span class="chip mint">Free forever</span>
+          <span class="chip lav">Open source</span>
+          <span class="chip powder">100% on your device</span>
+        </div>
+        <h1>Turn any song into <em>your backing band</em>.</h1>
+        <p class="lede hero-lede">
+          Timbrel splits music into six stems, then hands you the mixing desk: mute your part and play it yourself, loop
+          the hard bars, bend tempo and key, follow the lyrics. A little practice game that happens to be a serious
+          local studio.
+        </p>
+        <div class="hero-cta">
+          <a class="pill pill-dark" href={RELEASES}>Download for free</a>
+          <a class="pill pill-ghost" href={REPO}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path
+                d="M8 .8l2.18 4.42 4.88.71-3.53 3.44.83 4.86L8 11.94l-4.36 2.29.83-4.86L.94 5.93l4.88-.71L8 .8z"
+              ></path>
+            </svg>
+            Star on GitHub
+          </a>
+        </div>
+        <div class="hero-toy">
+          <StemToy />
+        </div>
+      </section>
+
+      <!-- ================= FEATURES ================= -->
+      <section class="wrap section" id="features">
+        <p class="kicker">What’s inside</p>
+        <h2>Everything you need to woodshed.</h2>
+        <div class="grid">
+          {
+            features.map((f) => (
+              <article class="card" style={`--wash: ${f.wash}`}>
+                <span class="card-wash" aria-hidden="true" />
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+                {f.chips && (
+                  <div class="stem-chips">
+                    {f.chips.map((c) => (
+                      <span class="chip" style={`background: ${c.bg}`}>
+                        <span class="dot" style={`background: ${c.dot}`} />
+                        {c.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))
+          }
+        </div>
+      </section>
+
+      <!-- ================= SCREENSHOTS ================= -->
+      <section class="wrap section" id="tour">
+        <p class="kicker">The app</p>
+        <h2>Have a look around.</h2>
+        <p class="lede">Real screenshots, straight from the studio. Light, minimal, a little playful.</p>
+
+        <figure class="shot shot-main">
+          <Image
+            src={shotStudio}
+            alt="Timbrel’s studio: six colored stem lanes with waveforms for Viva La Vida, mute/solo and volume per stem, and a floating transport dock with tempo, key, loop, click and count-in controls"
+            widths={[760, 1240, 1800, 2400]}
+            sizes="(max-width: 1200px) 94vw, 1120px"
+            format="webp"
+            quality={82}
+            loading="lazy"
+          />
+          <figcaption>
+            The Studio — every stem on its own lane, transport docked at the bottom like a game HUD.
+          </figcaption>
+        </figure>
+
+        <div class="shot-row">
+          <figure class="shot">
+            <Image
+              src={shotHome}
+              alt="Timbrel’s home screen: a YouTube search omnibox, playlist cards with mosaic covers, and a track list with BPM and key chips"
+              widths={[560, 900, 1400]}
+              sizes="(max-width: 860px) 94vw, 550px"
+              format="webp"
+              quality={82}
+              loading="lazy"
+            />
+            <figcaption>Home — search YouTube or drop a file; playlists and library below.</figcaption>
+          </figure>
+          <figure class="shot">
+            <Image
+              src={shotLyrics}
+              alt="The studio with a synced lyrics panel open, showing the words to Viva La Vida fetched from LRCLIB"
+              widths={[560, 900, 1400]}
+              sizes="(max-width: 860px) 94vw, 550px"
+              format="webp"
+              quality={82}
+              loading="lazy"
+            />
+            <figcaption>Synced lyrics from LRCLIB follow the playhead.</figcaption>
+          </figure>
+          <figure class="shot shot-wide">
+            <Image
+              src={shotOutput}
+              alt="The audio output panel listing three output devices and per-stem routing rules, with every stem set to follow the default output"
+              widths={[760, 1240, 1800]}
+              sizes="(max-width: 1200px) 94vw, 1120px"
+              format="webp"
+              quality={82}
+              loading="lazy"
+            />
+            <figcaption>The routing rig — any stem, any output device, plus the metronome on its own line.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ================= HOW IT WORKS ================= -->
+      <section class="wrap section" id="how">
+        <p class="kicker">Under the hood</p>
+        <h2>Four steps, zero servers.</h2>
+        <ol class="steps">
+          {
+            steps.map((s) => (
+              <li class="step">
+                <span class="step-n num">{s.n}</span>
+                <div>
+                  <h3>{s.title}</h3>
+                  <p>{s.body}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+      </section>
+
+      <!-- ================= PRIVACY ================= -->
+      <section class="wrap section" id="privacy">
+        <div class="manifesto">
+          <p class="kicker manifesto-kicker">The local-first promise</p>
+          <h2>Nothing leaves your device.</h2>
+          <ul class="manifesto-list">
+            <li><b>No cloud.</b> The AI runs on your GPU, not ours. We don’t have servers to send anything to.</li>
+            <li><b>No account.</b> Download, open, practice. There is nothing to sign up for.</li>
+            <li><b>No telemetry.</b> Timbrel doesn’t phone home — not even to say hi.</li>
+            <li><b>No lock-in.</b> Your music is FLAC files in folders. Delete the app and nothing follows you.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================= OPEN SOURCE ================= -->
+      <section class="wrap section" id="open-source">
+        <p class="kicker">Open source</p>
+        <h2>Free as in MIT.</h2>
+        <p class="lede">
+          Timbrel is built in the open — every feature, every mistake, every fix. Read it, fork it, bend it to your
+          band’s weird needs, or just watch it grow.
+        </p>
+        <div class="repo-card">
+          <div class="repo-head">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              ></path>
+            </svg>
+            <span class="repo-name">SammitBadodekar/timbrel</span>
+            <span class="chip mint">MIT</span>
+          </div>
+          <p class="repo-desc">
+            Open-source, fully-local stem separation and multitrack practice studio. Electron + React on top of a
+            Python separation engine.
+          </p>
+          <pre
+            class="repo-code"><code>git clone https://github.com/SammitBadodekar/timbrel
+cd timbrel && pnpm install
+pnpm dev</code></pre>
+          <p class="repo-note">The separation engine needs a one-time Python setup — the README has the two extra commands.</p>
+          <div class="repo-actions">
+            <a class="pill pill-dark" href={REPO}>View the code</a>
+            <a class="pill pill-ghost" href={`${REPO}/issues`}>Report a bug</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FAQ ================= -->
+      <section class="wrap section" id="faq">
+        <p class="kicker">Questions</p>
+        <h2>Fair questions.</h2>
+        <div class="faqs">
+          {
+            faqs.map((f) => (
+              <details class="faq">
+                <summary>
+                  {f.q}
+                  <span class="faq-plus" aria-hidden="true">
+                    +
+                  </span>
+                </summary>
+                <p>{f.a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </section>
+
+      <!-- ================= FINAL CTA ================= -->
+      <section class="wrap section closer">
+        <h2>The band is waiting.</h2>
+        <p class="lede closer-lede">Any song. Six stems. Your move.</p>
+        <div class="hero-cta">
+          <a class="pill pill-dark" href={RELEASES}>Download Timbrel</a>
+          <a class="pill pill-ghost" href={REPO}>Build from source</a>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= FOOTER ================= -->
+    <footer class="wrap footer">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <i><span></span></i>
+          Timbrel
+        </a>
+        <span class="footer-note">Made by Sammit Badodekar</span>
+      </div>
+      <nav class="footer-links">
+        <a href={REPO}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+            ></path>
+          </svg>
+          Project
+        </a>
+        <a href="https://github.com/SammitBadodekar">GitHub</a>
+        <a href="https://www.linkedin.com/in/sammitbadodekar/">LinkedIn</a>
+        <a href={`${REPO}/blob/main/LICENSE`}>MIT License</a>
+      </nav>
+    </footer>
+
+    <style>
+      /* ---------------- nav ---------------- */
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        padding-top: 26px;
+        padding-bottom: 10px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        font-size: 17px;
+        letter-spacing: -0.02em;
+      }
+      .brand i {
+        width: 24px;
+        height: 24px;
+        border-radius: 8px;
+        background: var(--charcoal);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .brand i span {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--wash-powder);
+      }
+      .nav-links {
+        display: flex;
+        gap: 22px;
+        margin: 0 auto;
+        font-size: 14.5px;
+        color: var(--graphite);
+      }
+      .nav-links a:hover {
+        color: var(--ink);
+      }
+      .nav-cta {
+        display: flex;
+        gap: 10px;
+      }
+      .nav-cta .pill {
+        padding: 9px 20px;
+        font-size: 14px;
+      }
+      @media (max-width: 860px) {
+        .nav-links {
+          display: none;
+        }
+        .nav-cta {
+          margin-left: auto;
+        }
+      }
+      @media (max-width: 480px) {
+        .nav-cta .gh {
+          display: none;
+        }
+      }
+
+      /* ---------------- hero ---------------- */
+      .hero {
+        padding-top: 72px;
+        text-align: center;
+      }
+      .hero-badges {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 26px;
+      }
+      h1 {
+        font-size: clamp(42px, 7vw, 84px);
+        letter-spacing: -0.025em;
+        line-height: 1.02;
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      h1 em {
+        font-style: normal;
+        color: var(--iris);
+      }
+      .hero-lede {
+        margin: 26px auto 0;
+        max-width: 620px;
+      }
+      .hero-cta {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 34px;
+      }
+      .hero-toy {
+        margin-top: 64px;
+        text-align: left;
+      }
+
+      /* ---------------- sections ---------------- */
+      .section {
+        margin-top: 140px;
+      }
+      .section > .lede {
+        margin-top: 16px;
+      }
+      @media (max-width: 720px) {
+        .section {
+          margin-top: 96px;
+        }
+      }
+
+      /* ---------------- feature grid ---------------- */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 36px;
+      }
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 640px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        position: relative;
+        background: var(--bone);
+        border: 1px solid var(--border);
+        border-radius: var(--r-card);
+        padding: 26px;
+        overflow: hidden;
+        transition:
+          transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+          box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-float);
+      }
+      .card-wash {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 6px;
+        background: var(--wash);
+      }
+      .card h3 {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        margin: 6px 0 10px;
+      }
+      .card p {
+        color: var(--graphite);
+        font-size: 14.5px;
+        line-height: 1.55;
+        margin: 0;
+      }
+      .stem-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .stem-chips .chip {
+        padding: 4px 11px;
+        font-size: 12px;
+      }
+
+      /* ---------------- screenshots ---------------- */
+      .shot {
+        margin: 36px 0 0;
+      }
+      .shot img {
+        width: 100%;
+        height: auto;
+        border-radius: var(--r-frame);
+        border: 1px solid rgba(10, 13, 18, 0.08);
+        box-shadow: var(--shadow-frame);
+      }
+      .shot figcaption {
+        text-align: center;
+        color: var(--fog);
+        font-size: 13.5px;
+        margin-top: 14px;
+      }
+      .shot-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-top: 8px;
+      }
+      .shot-row .shot-wide {
+        grid-column: 1 / -1;
+      }
+      @media (max-width: 860px) {
+        .shot-row {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* ---------------- steps ---------------- */
+      .steps {
+        list-style: none;
+        margin: 36px 0 0;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--r-card);
+        overflow: hidden;
+        background: var(--bone);
+      }
+      .step {
+        display: flex;
+        gap: 22px;
+        padding: 26px 30px;
+        border-bottom: 1px solid var(--border);
+      }
+      .step:last-child {
+        border-bottom: 0;
+      }
+      .step-n {
+        font-family: var(--mono);
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--iris);
+        padding-top: 3px;
+        flex: none;
+      }
+      .step h3 {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        margin: 0 0 6px;
+      }
+      .step p {
+        color: var(--graphite);
+        font-size: 14.5px;
+        line-height: 1.55;
+        margin: 0;
+        max-width: 620px;
+      }
+
+      /* ---------------- privacy manifesto ---------------- */
+      .manifesto {
+        background: var(--charcoal);
+        color: #fff;
+        border-radius: var(--r-hero);
+        padding: clamp(36px, 6vw, 72px);
+        box-shadow: 0 40px 80px -40px rgba(10, 13, 18, 0.5);
+      }
+      .manifesto-kicker {
+        color: var(--wash-powder);
+      }
+      .manifesto h2 {
+        color: #fff;
+      }
+      .manifesto-list {
+        list-style: none;
+        margin: 34px 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px 40px;
+      }
+      @media (max-width: 720px) {
+        .manifesto-list {
+          grid-template-columns: 1fr;
+        }
+      }
+      .manifesto-list li {
+        position: relative;
+        padding-left: 30px;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 15.5px;
+        line-height: 1.55;
+      }
+      .manifesto-list li b {
+        color: #fff;
+        font-weight: 600;
+      }
+      .manifesto-list li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--wash-mint) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5.2l2.3 2.3 4.7-4.8" stroke="%230a0d12" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+          center / 10px no-repeat;
+      }
+
+      /* ---------------- open source ---------------- */
+      .repo-card {
+        margin-top: 36px;
+        background: var(--bone);
+        border: 1px solid var(--border);
+        border-radius: var(--r-card);
+        padding: 30px;
+        max-width: 720px;
+      }
+      .repo-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .repo-name {
+        font-family: var(--mono);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .repo-desc {
+        color: var(--graphite);
+        font-size: 14.5px;
+        line-height: 1.55;
+        margin: 12px 0 18px;
+      }
+      .repo-code {
+        background: var(--charcoal);
+        color: var(--wash-powder);
+        border-radius: 14px;
+        padding: 18px 22px;
+        margin: 0;
+        overflow-x: auto;
+      }
+      .repo-code code {
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.7;
+        letter-spacing: 0;
+      }
+      .repo-note {
+        color: var(--fog);
+        font-size: 13px;
+        margin: 12px 0 20px;
+      }
+      .repo-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      /* ---------------- FAQ ---------------- */
+      .faqs {
+        margin-top: 36px;
+        max-width: 760px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .faq {
+        background: var(--bone);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 0 24px;
+      }
+      .faq summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        list-style: none;
+        cursor: pointer;
+        padding: 18px 0;
+        font-weight: 600;
+        font-size: 15.5px;
+        letter-spacing: -0.01em;
+      }
+      .faq summary::-webkit-details-marker {
+        display: none;
+      }
+      .faq-plus {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--paper);
+        color: var(--graphite);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        font-weight: 500;
+        flex: none;
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .faq[open] .faq-plus {
+        transform: rotate(45deg);
+        background: var(--charcoal);
+        border-color: var(--charcoal);
+        color: #fff;
+      }
+      .faq > p {
+        color: var(--graphite);
+        font-size: 14.5px;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0 0 20px;
+        max-width: 640px;
+      }
+
+      /* ---------------- closer ---------------- */
+      .closer {
+        text-align: center;
+        padding-bottom: 20px;
+      }
+      .closer-lede {
+        margin: 14px auto 0;
+      }
+      .closer .hero-cta {
+        margin-top: 28px;
+      }
+
+      /* ---------------- footer ---------------- */
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        flex-wrap: wrap;
+        padding-top: 90px;
+        padding-bottom: 44px;
+      }
+      .footer-brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .footer-note {
+        color: var(--fog);
+        font-size: 13.5px;
+      }
+      .footer-links {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        font-size: 14px;
+        color: var(--graphite);
+      }
+      .footer-links a {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .footer-links a:hover {
+        color: var(--ink);
+      }
+    </style>
+  </body>
+</html>

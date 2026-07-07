@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "timbrel-web",
+  "compatibility_date": "2026-07-07",
+  // Static site served from Workers Assets — no worker script needed.
+  "assets": {
+    "directory": "./dist"
+  }
+}

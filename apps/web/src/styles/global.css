@@ -1,0 +1,234 @@
+/* ------------------------------------------------------------------ */
+/* Timbrel marketing site — Geniestudio design language (DESIGN.md)    */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/GeistVF.woff") format("woff");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMonoVF.woff") format("woff");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* surfaces & ink */
+  --sky: #ebf5ff;
+  --paper: #ffffff;
+  --bone: #fafdff;
+  --mist: #f6f7f8;
+  --ink: #0a0d12;
+  --charcoal: #181d27;
+  --graphite: #535862;
+  --fog: #93979f;
+  --border: rgba(10, 13, 18, 0.07);
+
+  /* accent */
+  --iris: #0069e0;
+  --iris-bright: #479dff;
+  --sky-blue: #0099ff;
+
+  /* pastel washes */
+  --wash-lavender: #f1e6ff;
+  --wash-mint: #d3f6e3;
+  --wash-powder: #cce7ff;
+  --wash-solar: #fff2be;
+  --wash-peach: #ffd1b8;
+
+  /* stem identity — hue + wash pairs */
+  --stem-vocals: #e8446d;
+  --stem-vocals-wash: #fde3ea;
+  --stem-drums: #e08a00;
+  --stem-drums-wash: #feefd6;
+  --stem-bass: #7c5cff;
+  --stem-bass-wash: #f1e6ff;
+  --stem-guitar: #0da678;
+  --stem-guitar-wash: #d3f6e3;
+  --stem-piano: #0d9bdc;
+  --stem-piano-wash: #cce7ff;
+  --stem-other: #8a919c;
+  --stem-other-wash: #eceef1;
+
+  --sans: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --shadow-float: 0 18px 34px -18px rgba(4, 69, 144, 0.35);
+  --shadow-frame: 0 32px 64px -32px rgba(4, 69, 144, 0.28);
+
+  --r-card: 20px;
+  --r-frame: 24px;
+  --r-hero: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--sky);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--wash-powder);
+  color: var(--ink);
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ---------------- shared atoms ---------------- */
+
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: 28px;
+  padding-right: 28px;
+}
+
+.kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fog);
+  margin: 0 0 14px;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 500;
+  margin: 0;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: clamp(30px, 4.4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.lede {
+  color: var(--graphite);
+  font-size: 18px;
+  line-height: 1.55;
+  max-width: 640px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* pills — the button language */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 12px 26px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pill:active {
+  transform: scale(0.97);
+}
+.pill-dark {
+  background: var(--charcoal);
+  color: #fff;
+  box-shadow:
+    0 1px 2px rgba(10, 13, 18, 0.5),
+    0 0 0 1px var(--ink);
+}
+.pill-dark:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 16px -6px rgba(10, 13, 18, 0.55),
+    0 0 0 1px var(--ink);
+}
+.pill-ghost {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+.pill-ghost:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -14px rgba(4, 69, 144, 0.25);
+}
+
+/* pastel metadata chips — data as collectibles */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 9999px;
+  padding: 5px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.chip.powder {
+  background: var(--wash-powder);
+}
+.chip.lav {
+  background: var(--wash-lavender);
+}
+.chip.mint {
+  background: var(--wash-mint);
+}
+.chip.solar {
+  background: var(--wash-solar);
+}
+.chip.peach {
+  background: var(--wash-peach);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
