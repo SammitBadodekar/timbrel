@@ -21,6 +21,7 @@
 import {
   computePeaks,
   ROUTABLE_CHANNELS,
+  STEM_KINDS,
   SYSTEM_SINK_ID,
   type LoopRegion,
   type ResolvedRouting,
@@ -171,7 +172,9 @@ export class StudioEngine {
     // caller (the store) starts playback.
     this.scheduleRebuild()
     await this.rebuildChain
-    return [...this.buffers.keys()]
+    // Buffers decode in async race order; return them in the canonical
+    // STEM_KINDS order so every song renders its lanes identically.
+    return STEM_KINDS.filter((kind) => this.buffers.has(kind))
   }
 
   private applyMix(): void {
