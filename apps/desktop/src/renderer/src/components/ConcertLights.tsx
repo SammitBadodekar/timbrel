@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import type { WizBulb, WizLightFrame } from '@shared/ipc'
+import { STEM_KINDS, STEM_LABELS } from '@timbrel/core'
 import { concertLightFrame } from '../audio/concertLights'
 import { bulbIdentity, useConcertLightsStore } from '../store/concertLightsStore'
 import { useStudioStore } from '../store/studioStore'
@@ -11,11 +12,17 @@ export function ConcertLightsController(): null {
   const bulbs = useConcertLightsStore((state) => state.bulbs)
   const selectedBulbIds = useConcertLightsStore((state) => state.selectedBulbIds)
   const enabled = useConcertLightsStore((state) => state.enabled)
+  const lightStemKinds = useConcertLightsStore((state) => state.lightStemKinds)
+  const engine = useStudioStore((state) => state.engine)
   const playing = useStudioStore((state) => state.playing)
   const selectedBulbs = useMemo(() => {
     const selected = new Set(selectedBulbIds)
     return bulbs.filter((bulb) => selected.has(bulbIdentity(bulb)))
   }, [bulbs, selectedBulbIds])
+
+  useEffect(() => {
+    engine?.setLightStems(lightStemKinds)
+  }, [engine, lightStemKinds])
 
   useEffect(() => {
     if (!enabled || selectedBulbs.length === 0) return
@@ -88,6 +95,7 @@ export function ConcertLightsPanel(): React.JSX.Element | null {
   const discovering = useConcertLightsStore((state) => state.discovering)
   const enabled = useConcertLightsStore((state) => state.enabled)
   const error = useConcertLightsStore((state) => state.error)
+  const lightStemKinds = useConcertLightsStore((state) => state.lightStemKinds)
   const playing = useStudioStore((state) => state.playing)
   const selectedBulbs = useMemo(() => {
     const selected = new Set(selectedBulbIds)
@@ -140,6 +148,33 @@ export function ConcertLightsPanel(): React.JSX.Element | null {
             discovering={discovering}
             enabled={enabled}
           />
+
+          <div>
+            <div className="text-sm font-medium">Light source stems</div>
+            <div className="mt-1 text-xs text-muted">
+              Choose which parts of the mix drive brightness, colour, and beat pulses.
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {STEM_KINDS.map((kind) => {
+                const selected = lightStemKinds.includes(kind)
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => useConcertLightsStore.getState().toggleLightStem(kind)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                      selected
+                        ? 'border-accent bg-wash-lavender text-text'
+                        : 'border-border bg-surface text-muted hover:border-accent'
+                    }`}
+                  >
+                    {STEM_LABELS[kind]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {error && (
             <div className="rounded-xl bg-wash-vocals px-3 py-2 text-xs text-danger">{error}</div>

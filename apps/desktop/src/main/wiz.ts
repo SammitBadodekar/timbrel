@@ -5,7 +5,8 @@ import { ipcMain } from 'electron'
 import { IpcChannel, type WizBulb, type WizLightCommand, type WizLightFrame } from '../shared/ipc'
 
 const WIZ_PORT = 38899
-const DISCOVERY_TIMEOUT_MS = 1_500
+const DISCOVERY_TIMEOUT_MS = 3_000
+const DISCOVERY_PROBE_INTERVAL_MS = 400
 
 interface WizResponse {
   result?: Record<string, unknown>
@@ -86,11 +87,13 @@ export function discoverWizBulbs(timeoutMs = DISCOVERY_TIMEOUT_MS): Promise<WizB
     const socket = dgram.createSocket('udp4')
     const bulbs = new Map<string, WizBulb>()
     let settled = false
+    let probeTimer: NodeJS.Timeout | undefined
 
     const finish = (error?: Error): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (probeTimer) clearInterval(probeTimer)
       socket.close()
       if (error) reject(error)
       else resolve([...bulbs.values()].sort((a, b) => a.ip.localeCompare(b.ip)))
@@ -117,7 +120,15 @@ export function discoverWizBulbs(timeoutMs = DISCOVERY_TIMEOUT_MS): Promise<WizB
     socket.bind(0, () => {
       try {
         socket.setBroadcast(true)
-        for (const address of broadcastAddresses()) socket.send(message, WIZ_PORT, address)
+        const addresses = broadcastAddresses()
+        const probe = (): void => {
+          for (const address of addresses) socket.send(message, WIZ_PORT, address)
+        }
+        // WiZ discovery is UDP and bulbs frequently miss an individual packet
+        // while waking or servicing another request. Probe throughout the
+        // listening window so one UI action is reliable.
+        probe()
+        probeTimer = setInterval(probe, DISCOVERY_PROBE_INTERVAL_MS)
       } catch (error) {
         finish(error as Error)
       }

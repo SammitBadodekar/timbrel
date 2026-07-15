@@ -106,6 +106,7 @@ export class StudioEngine {
   private readonly lightAnalyser: AnalyserNode
   private readonly lightSpectrum: Uint8Array<ArrayBuffer>
   private readonly lightWaveform: Float32Array<ArrayBuffer>
+  private lightStems = new Set<StemKind>(STEM_KINDS)
   private previousLightBass = 0
   private previousLightLevel = 0
 
@@ -473,7 +474,7 @@ export class StudioEngine {
       // `disconnect()` above also removes the analyser tap, so restore it on
       // every routing rebuild. Each stem is connected exactly once here even
       // when the audible route fans out to multiple physical outputs.
-      gain.connect(this.lightAnalyser)
+      if (this.lightStems.has(kind)) gain.connect(this.lightAnalyser)
     }
 
     // Click bus → its sinks' terminals (always dry — never time-stretched).
@@ -672,6 +673,13 @@ export class StudioEngine {
 
   get isPlaying(): boolean {
     return this.playing
+  }
+
+  /** Choose which post-fader stems feed concert-light analysis. Audible output
+   * routing is unchanged; the next graph rebuild only rewires analyser taps. */
+  setLightStems(kinds: readonly StemKind[]): void {
+    this.lightStems = new Set(kinds)
+    this.scheduleRebuild()
   }
 
   /** Snapshot four normalized energy bands from the post-fader mix. */

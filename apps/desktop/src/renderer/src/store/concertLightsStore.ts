@@ -1,10 +1,15 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { WizBulb } from '@shared/ipc'
+import { STEM_KINDS, type StemKind } from '@timbrel/core'
+
+const AUTO_DISCOVERY_INTERVAL_MS = 5_000
+let autoDiscoveryTimer: number | undefined
 
 interface ConcertLightsStore {
   bulbs: WizBulb[]
   selectedBulbIds: string[]
+  lightStemKinds: StemKind[]
   configured: boolean
   initialized: boolean
   discovering: boolean
@@ -15,6 +20,7 @@ interface ConcertLightsStore {
   init: () => void
   discover: () => Promise<void>
   toggleBulb: (ip: string) => void
+  toggleLightStem: (kind: StemKind) => void
   start: () => void
   stop: () => Promise<void>
   openPanel: () => void
@@ -29,6 +35,7 @@ export const useConcertLightsStore = create<ConcertLightsStore>()(
     (set, get) => ({
       bulbs: [],
       selectedBulbIds: [],
+      lightStemKinds: [...STEM_KINDS],
       configured: false,
       initialized: false,
       discovering: false,
@@ -40,6 +47,12 @@ export const useConcertLightsStore = create<ConcertLightsStore>()(
         if (get().initialized) return
         set({ initialized: true })
         void get().discover()
+        // Bulbs may still be joining Wi-Fi when Timbrel starts. Keep looking
+        // until at least one is reachable instead of requiring repeated clicks.
+        autoDiscoveryTimer ??= window.setInterval(() => {
+          const state = get()
+          if (state.bulbs.length === 0 && !state.discovering) void state.discover()
+        }, AUTO_DISCOVERY_INTERVAL_MS)
       },
 
       discover: async () => {
@@ -47,11 +60,20 @@ export const useConcertLightsStore = create<ConcertLightsStore>()(
         set({ discovering: true, error: null })
         try {
           const bulbs = await window.timbrel.discoverWizBulbs()
-          const firstConfiguration = !get().configured
+          const state = get()
+          const firstConfiguration = !state.configured
+          const selectedBulbIds = firstConfiguration
+            ? bulbs.map(bulbIdentity)
+            : state.selectedBulbIds
+          const selected = new Set(selectedBulbIds)
+          const hasSelectedBulbs = bulbs.some((bulb) => selected.has(bulbIdentity(bulb)))
           set({
             bulbs,
-            selectedBulbIds: firstConfiguration ? bulbs.map(bulbIdentity) : get().selectedBulbIds,
-            configured: firstConfiguration ? bulbs.length > 0 : get().configured,
+            selectedBulbIds,
+            configured: firstConfiguration ? bulbs.length > 0 : state.configured,
+            // Discovery is the connection step: once a saved (or initially
+            // selected) rig responds, arm it without requiring another click.
+            enabled: hasSelectedBulbs,
             error:
               bulbs.length === 0
                 ? 'No WiZ bulbs replied. Check that local communication is enabled in the WiZ app.'
@@ -73,6 +95,19 @@ export const useConcertLightsStore = create<ConcertLightsStore>()(
         if (selected.has(id)) selected.delete(id)
         else selected.add(id)
         set({ selectedBulbIds: [...selected], configured: true })
+      },
+
+      toggleLightStem: (kind) => {
+        const selected = new Set(get().lightStemKinds)
+        if (selected.has(kind)) {
+          // An armed rig with no analysis source looks broken, so always keep
+          // at least one stem selected.
+          if (selected.size === 1) return
+          selected.delete(kind)
+        } else {
+          selected.add(kind)
+        }
+        set({ lightStemKinds: STEM_KINDS.filter((candidate) => selected.has(candidate)) })
       },
 
       start: () => {
@@ -104,6 +139,7 @@ export const useConcertLightsStore = create<ConcertLightsStore>()(
       name: 'timbrel-concert-lights',
       partialize: (state) => ({
         selectedBulbIds: state.selectedBulbIds,
+        lightStemKinds: state.lightStemKinds,
         configured: state.configured
       })
     }
