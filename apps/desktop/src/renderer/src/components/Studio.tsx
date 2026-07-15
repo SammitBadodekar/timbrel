@@ -8,6 +8,7 @@ import Lyrics from './Lyrics'
 import TransportDock from './TransportDock'
 import StudioSkeleton from './StudioSkeleton'
 import { OutputButton } from './AudioOutput'
+import { ConcertLightsButton } from './ConcertLights'
 
 interface StudioProps {
   songId: string
@@ -306,6 +307,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
             Lyrics
           </button>
           <OutputButton />
+          <ConcertLightsButton />
           <button
             onClick={() => useStudioStore.getState().openExport()}
             className="rounded-full bg-charcoal px-4 py-2 text-sm font-medium text-white hover:bg-charcoal-hover"

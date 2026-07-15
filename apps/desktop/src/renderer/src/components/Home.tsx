@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PlaylistSummary, YtCandidate } from '@timbrel/core'
 import type { SongSummary } from '@shared/ipc'
 import type { JobUi } from '../types'
 import { OutputButton } from './AudioOutput'
+import { ConcertLightsButton } from './ConcertLights'
 import PlaylistCard, { NewPlaylistCard } from './PlaylistCard'
 import TrackRow from './TrackRow'
 import SearchResults from './SearchResults'
@@ -32,6 +33,7 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([])
   const [jobs, setJobs] = useState<Record<string, JobUi>>({})
   const [busy, setBusy] = useState(false)
+  const [libraryQuery, setLibraryQuery] = useState('')
 
   // Search
   const [query, setQuery] = useState('')
@@ -257,8 +259,17 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
   const searchActive = results !== null || searching
   const selectionActive = selection.size > 0
 
-  // Select-all operates over the separated (selectable) tracks only.
-  const selectableIds = songs.filter((s) => s.separated).map((s) => s.id)
+  const filteredSongs = useMemo(() => {
+    const words = libraryQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    if (words.length === 0) return songs
+    return songs.filter((song) => {
+      const searchable = `${song.title} ${song.artist ?? ''}`.toLocaleLowerCase()
+      return words.every((word) => searchable.includes(word))
+    })
+  }, [libraryQuery, songs])
+
+  // Select-all follows the visible local-search result and excludes processing tracks.
+  const selectableIds = filteredSongs.filter((s) => s.separated).map((s) => s.id)
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selection.has(id))
   const toggleSelectAll = (): void => setSelection(allSelected ? new Set() : new Set(selectableIds))
 
@@ -306,7 +317,10 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
             </span>
             <span className="text-lg font-semibold tracking-tight">Timbrel</span>
           </div>
-          <OutputButton />
+          <div className="flex items-center gap-2">
+            <ConcertLightsButton />
+            <OutputButton />
+          </div>
         </div>
 
         {/* Omnibox */}
@@ -444,10 +458,38 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
             </section>
 
             <section className="mt-9 pb-24">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-3 flex flex-wrap items-center gap-3">
                 <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fog">
-                  All tracks {songs.length > 0 && `· ${songs.length}`}
+                  All tracks{' '}
+                  {songs.length > 0 &&
+                    (libraryQuery.trim()
+                      ? `· ${filteredSongs.length} of ${songs.length}`
+                      : `· ${songs.length}`)}
                 </h2>
+                <div className="ml-auto flex min-w-56 flex-1 items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 sm:max-w-72">
+                  <span className="text-xs text-fog" aria-hidden>
+                    ⌕
+                  </span>
+                  <input
+                    value={libraryQuery}
+                    onChange={(event) => setLibraryQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setLibraryQuery('')
+                    }}
+                    placeholder="Search downloaded songs…"
+                    aria-label="Search downloaded songs"
+                    className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-fog"
+                  />
+                  {libraryQuery && (
+                    <button
+                      onClick={() => setLibraryQuery('')}
+                      className="text-xs text-fog hover:text-text"
+                      aria-label="Clear downloaded song search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 {selectableIds.length > 0 && (
                   <button
                     onClick={toggleSelectAll}
@@ -465,9 +507,20 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
                     guitar, piano and other — all on-device.
                   </p>
                 </div>
+              ) : filteredSongs.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 rounded-3xl border border-border bg-surface py-12 text-center">
+                  <p className="text-sm font-semibold">No downloaded songs match</p>
+                  <p className="text-sm text-muted">Try a different title or artist.</p>
+                  <button
+                    onClick={() => setLibraryQuery('')}
+                    className="mt-1 text-xs font-semibold text-accent hover:underline"
+                  >
+                    Clear library search
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-3xl border border-border bg-surface p-1.5">
-                  {songs.map((song) => (
+                  {filteredSongs.map((song) => (
                     <TrackRow
                       key={song.id}
                       variant="library"

@@ -59,8 +59,34 @@ export const IpcChannel = {
   SaveRoutingRig: 'routing:save',
   SetupState: 'setup:state',
   SetupEvent: 'setup:event',
-  SetupRetry: 'setup:retry'
+  SetupRetry: 'setup:retry',
+  WizDiscover: 'wiz:discover',
+  WizSetLights: 'wiz:setLights'
 } as const
+
+/** The subset of setPilot supported by Timbrel's concert-light integration. */
+export interface WizLightCommand {
+  state?: boolean
+  r?: number
+  g?: number
+  b?: number
+  dimming?: number
+  temp?: number
+}
+
+export interface WizLightFrame {
+  host: string
+  params: WizLightCommand
+}
+
+export interface WizBulb {
+  ip: string
+  mac?: string
+  name?: string
+  rssi?: number
+  /** State captured during discovery, restored when the show is stopped. */
+  pilot: WizLightCommand
+}
 
 /**
  * First-run install state — the frozen stem-separation engine plus the CLI
@@ -222,6 +248,10 @@ export interface TimbrelApi {
   pickExportTarget(input: ExportPickTargetInput): Promise<string | null>
   /** Encode rendered PCM to a file via ffmpeg. */
   encodeExport(input: ExportEncodeInput): Promise<ExportEncodeResult>
+  /** Find WiZ bulbs on the current LAN using their local UDP protocol. */
+  discoverWizBulbs(): Promise<WizBulb[]>
+  /** Queue one concert-light frame for all selected bulbs. */
+  setWizLights(frames: WizLightFrame[]): Promise<void>
   /** Whether a Spotify session is stored, and whose. */
   spotifyStatus(): Promise<SpotifyConnection>
   /** Open the browser consent flow; resolves once connected (rejects on deny/timeout). */

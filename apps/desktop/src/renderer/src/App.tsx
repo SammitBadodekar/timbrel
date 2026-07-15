@@ -5,7 +5,9 @@ import PlaylistDetail from './components/PlaylistDetail'
 import SpotifyImport from './components/SpotifyImport'
 import SetupGate from './components/SetupGate'
 import { OutputPanel } from './components/AudioOutput'
+import { ConcertLightsController, ConcertLightsPanel } from './components/ConcertLights'
 import { useRoutingStore } from './store/routingStore'
+import { useConcertLightsStore } from './store/concertLightsStore'
 
 /**
  * Thin router. Four destinations — Home (search + library + playlists), a
@@ -24,6 +26,7 @@ function App(): React.JSX.Element {
   // Load the global output-routing rig + enumerate devices once, app-wide.
   useEffect(() => {
     void useRoutingStore.getState().init()
+    useConcertLightsStore.getState().init()
   }, [])
 
   let content: React.JSX.Element
@@ -53,6 +56,8 @@ function App(): React.JSX.Element {
     <SetupGate>
       {content}
       <OutputPanel />
+      <ConcertLightsPanel />
+      <ConcertLightsController />
     </SetupGate>
   )
 }

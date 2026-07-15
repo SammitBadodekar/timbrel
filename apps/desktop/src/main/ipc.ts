@@ -37,10 +37,12 @@ import { registerSpotifyIpc } from './spotify/ipc'
 import { matchYtTrack } from './spotify/download'
 import { searchYouTube, downloadYtAudio } from './youtube/ytdlp'
 import { fetchLyrics } from './lyrics/lrclib'
+import { registerWizIpc } from './wiz'
 
 export function registerIpc(sidecar: SidecarManager): void {
   registerExportIpc()
   registerSpotifyIpc()
+  registerWizIpc()
 
   ipcMain.handle(IpcChannel.PickAudio, async () => {
     const result = await dialog.showOpenDialog({

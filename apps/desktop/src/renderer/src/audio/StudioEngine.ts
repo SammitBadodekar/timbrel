@@ -30,6 +30,7 @@ import {
 } from '@timbrel/core'
 import { SoundTouchNode } from '@soundtouchjs/audio-worklet'
 import processorUrl from '@soundtouchjs/audio-worklet/processor?url'
+import type { AudioEnergy } from './concertLights'
 
 export interface StemControls {
   gain: number
@@ -100,6 +101,13 @@ export class StudioEngine {
   private readonly gains = new Map<StemKind, GainNode>()
   private readonly sources = new Map<StemKind, AudioBufferSourceNode>()
   private readonly controls = new Map<StemKind, StemControls>()
+  /** Parallel analysis tap. It never reaches an audio destination and therefore
+   * cannot color, delay, or duplicate the mix the listener hears. */
+  private readonly lightAnalyser: AnalyserNode
+  private readonly lightSpectrum: Uint8Array<ArrayBuffer>
+  private readonly lightWaveform: Float32Array<ArrayBuffer>
+  private previousLightBass = 0
+  private previousLightLevel = 0
 
   private startedAtCtxTime = 0
   private offsetSec = 0
@@ -147,6 +155,13 @@ export class StudioEngine {
 
   constructor() {
     this.ctx = new AudioContext()
+    this.lightAnalyser = this.ctx.createAnalyser()
+    this.lightAnalyser.fftSize = 1024
+    // Short smoothing preserves musical movement instead of flattening several
+    // light frames into one slow brightness envelope.
+    this.lightAnalyser.smoothingTimeConstant = 0.32
+    this.lightSpectrum = new Uint8Array(this.lightAnalyser.frequencyBinCount)
+    this.lightWaveform = new Float32Array(this.lightAnalyser.fftSize)
     this.clickBus = this.ctx.createGain()
     this.clickBus.gain.value = 0.9
     // The system sink is synchronous (dest = ctx.destination), so the click
@@ -455,6 +470,10 @@ export class StudioEngine {
       gain.disconnect()
       const r = this.resolved[kind]
       if (r && !r.silent) for (const id of r.deviceIds) gain.connect(this.ensureSubmix(id).submix)
+      // `disconnect()` above also removes the analyser tap, so restore it on
+      // every routing rebuild. Each stem is connected exactly once here even
+      // when the audible route fans out to multiple physical outputs.
+      gain.connect(this.lightAnalyser)
     }
 
     // Click bus → its sinks' terminals (always dry — never time-stretched).
@@ -653,6 +672,83 @@ export class StudioEngine {
 
   get isPlaying(): boolean {
     return this.playing
+  }
+
+  /** Snapshot four normalized energy bands from the post-fader mix. */
+  getLightEnergy(): AudioEnergy {
+    if (!this.playing) {
+      this.previousLightBass = 0
+      this.previousLightLevel = 0
+      return { level: 0, bass: 0, mid: 0, treble: 0, pulse: 0, beat: 0 }
+    }
+    this.lightAnalyser.getByteFrequencyData(this.lightSpectrum)
+    this.lightAnalyser.getFloatTimeDomainData(this.lightWaveform)
+    const level = this.waveformLevel()
+    // Gate FFT residue with real waveform loudness so silent sections stay dim.
+    const frequencyGate = Math.min(1, level * 3)
+    const bass = this.bandEnergy(45, 250) * frequencyGate
+    const mid = this.bandEnergy(250, 2_000) * frequencyGate
+    const treble = this.bandEnergy(2_000, 8_000) * frequencyGate
+    const bassOnset = Math.max(0, bass - this.previousLightBass * 1.04) * 3.5
+    const levelOnset = Math.max(0, level - this.previousLightLevel * 1.06) * 2.4
+    const pulse = Math.min(1, bassOnset + levelOnset)
+    this.previousLightBass = bass
+    this.previousLightLevel = level
+    return {
+      level,
+      bass,
+      mid,
+      treble,
+      pulse,
+      // Do not flash through a truly silent beat grid (e.g. a counted intro).
+      beat: level >= 0.025 ? this.beatPulse() : 0
+    }
+  }
+
+  private waveformLevel(): number {
+    let squared = 0
+    for (const sample of this.lightWaveform) squared += sample * sample
+    const rms = Math.sqrt(squared / this.lightWaveform.length)
+    // Noise gate at -44 dB-ish, reaching full scale around normal mastered RMS.
+    return Math.min(1, Math.max(0, (rms - 0.006) / 0.21))
+  }
+
+  /** Full pulse around the nearest detected beat, then a short falloff. The
+   * window scales with tempo so an 80 ms UDP frame cadence cannot skip beats. */
+  private beatPulse(): number {
+    if (this.beatTimes.length === 0) return 0
+    const target = this.currentTime - this.gridOffset
+    let low = 0
+    let high = this.beatTimes.length
+    while (low < high) {
+      const mid = (low + high) >>> 1
+      if (this.beatTimes[mid]! < target) low = mid + 1
+      else high = mid
+    }
+    const next = this.beatTimes[low]
+    const previous = this.beatTimes[low - 1]
+    const distance = Math.min(
+      next === undefined ? Infinity : Math.abs(next - target),
+      previous === undefined ? Infinity : Math.abs(previous - target)
+    )
+    const fullWindow = 0.06 * this.rate
+    const tailWindow = 0.14 * this.rate
+    if (distance <= fullWindow) return 1
+    if (distance >= tailWindow) return 0
+    return 1 - (distance - fullWindow) / (tailWindow - fullWindow)
+  }
+
+  private bandEnergy(fromHz: number, toHz: number): number {
+    const hzPerBin = this.ctx.sampleRate / this.lightAnalyser.fftSize
+    const from = Math.max(0, Math.floor(fromHz / hzPerBin))
+    const to = Math.min(this.lightSpectrum.length, Math.ceil(toHz / hzPerBin))
+    if (to <= from) return 0
+    let squared = 0
+    for (let i = from; i < to; i++) {
+      const value = this.lightSpectrum[i]! / 255
+      squared += value * value
+    }
+    return Math.sqrt(squared / (to - from))
   }
 
   /** Called by the RAF loop when playback runs off the end. */

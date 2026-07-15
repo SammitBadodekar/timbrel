@@ -7,6 +7,7 @@ import { registerMediaSchemePrivileges, registerMediaProtocol } from './media'
 import { SidecarManager } from './sidecar/manager'
 import { startSetup } from './setup'
 import { registerIpc } from './ipc'
+import { disposeWiz } from './wiz'
 
 // Name drives the app-data folder (~/Library/Application Support/Timbrel, etc.).
 app.setName('Timbrel')
@@ -86,6 +87,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  disposeWiz()
   sidecar?.dispose()
   closeDb()
 })
