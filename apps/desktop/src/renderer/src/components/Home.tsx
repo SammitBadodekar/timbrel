@@ -11,6 +11,7 @@ import AddToPlaylistMenu from './AddToPlaylistMenu'
 import ConfirmDialog from './ConfirmDialog'
 
 interface HomeProps {
+  searchFocusRequest: number
   onOpenSong: (songId: string) => void
   onOpenPlaylist: (playlistId: string) => void
   onOpenSpotify: () => void
@@ -28,7 +29,13 @@ function errMsg(e: unknown): string {
  * takes a dropped/added file, a shelf of playlists, and the full track list with
  * multi-select. Replaces the old separate Library + Search screens.
  */
-function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.JSX.Element {
+function Home({
+  searchFocusRequest,
+  onOpenSong,
+  onOpenPlaylist,
+  onOpenSpotify
+}: HomeProps): React.JSX.Element {
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [songs, setSongs] = useState<SongSummary[]>([])
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([])
   const [jobs, setJobs] = useState<Record<string, JobUi>>({})
@@ -66,6 +73,10 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
     void window.timbrel.listSongs().then(setSongs)
     void window.timbrel.listPlaylists().then(setPlaylists)
   }, [])
+
+  useEffect(() => {
+    if (searchFocusRequest > 0) searchInputRef.current?.focus()
+  }, [searchFocusRequest])
 
   // Single subscription to the import/separation stream drives every job row.
   useEffect(() => {
@@ -338,6 +349,7 @@ function Home({ onOpenSong, onOpenPlaylist, onOpenSpotify }: HomeProps): React.J
               <path d="M10.5 10.5L14 14" stroke="#93979f" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
