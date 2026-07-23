@@ -13,6 +13,10 @@ import { ConcertLightsButton } from './ConcertLights'
 interface StudioProps {
   songId: string
   onBack: () => void
+  autoPlay?: boolean
+  queuePosition?: { current: number; total: number }
+  onPrevious?: () => void
+  onNext?: () => void
 }
 
 /** Gutter (channel-strip) width in px — must match `StemRow`'s `w-40` so the
@@ -110,17 +114,26 @@ function LoopBand({ variant }: { variant: 'ruler' | 'lane' }): React.JSX.Element
   )
 }
 
-function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
+function Studio({
+  songId,
+  onBack,
+  autoPlay,
+  queuePosition,
+  onPrevious,
+  onNext
+}: StudioProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement>(null)
   const rulerRef = useRef<HTMLDivElement>(null)
   const loopDrag = useRef<LoopDrag | null>(null)
   const [lyricsOpen, setLyricsOpen] = useState(false)
+  const autoPlayedSong = useRef<string | null>(null)
 
   // Deliberately NOT subscribed here: `controls`, `peaks`, `loop`, `tempoKey`,
   // `currentTime`. Those change at pointer-drag / RAF rate and live in leaf
   // components (LaneWaveform, LoopBand, LoopControls, TempoKeyControls,
   // Playhead) so continuous gestures never re-render this shell.
   const loading = useStudioStore((s) => s.loading)
+  const loadedSongId = useStudioStore((s) => s.songId)
   const error = useStudioStore((s) => s.error)
   const project = useStudioStore((s) => s.project)
   const stemKinds = useStudioStore((s) => s.stemKinds)
@@ -135,6 +148,19 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
     void useStudioStore.getState().load(songId)
     return () => useStudioStore.getState().dispose()
   }, [songId])
+
+  useEffect(() => {
+    if (
+      loadedSongId === songId &&
+      !loading &&
+      project &&
+      autoPlay &&
+      autoPlayedSong.current !== songId
+    ) {
+      autoPlayedSong.current = songId
+      void useStudioStore.getState().togglePlay()
+    }
+  }, [autoPlay, loadedSongId, loading, project, songId])
 
   // 60fps transport clock: the store's `tick` reflects the engine clock and
   // drives loop-wrap / end-of-song. Only runs while the transport moves —
@@ -383,7 +409,7 @@ function Studio({ songId, onBack }: StudioProps): React.JSX.Element {
 
           {/* Bottom HUD dock — everything rhythmic lives here. */}
           <div className="shrink-0 px-5 pb-5 pt-1">
-            <TransportDock />
+            <TransportDock queuePosition={queuePosition} onPrevious={onPrevious} onNext={onNext} />
           </div>
 
           {exportOpen && <ExportPanel />}

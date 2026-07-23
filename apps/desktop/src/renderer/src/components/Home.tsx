@@ -14,6 +14,7 @@ interface HomeProps {
   searchFocusRequest: number
   onOpenSong: (songId: string) => void
   onOpenPlaylist: (playlistId: string) => void
+  onPlayPlaylist: (songIds: string[], startIndex?: number) => void
   onOpenSpotify: () => void
 }
 
@@ -33,6 +34,7 @@ function Home({
   searchFocusRequest,
   onOpenSong,
   onOpenPlaylist,
+  onPlayPlaylist,
   onOpenSpotify
 }: HomeProps): React.JSX.Element {
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -440,6 +442,11 @@ function Home({
                     key={pl.id}
                     playlist={pl}
                     onOpen={() => onOpenPlaylist(pl.id)}
+                    onPlay={() => {
+                      void window.timbrel.getPlaylist(pl.id).then((playlist) => {
+                        if (playlist) onPlayPlaylist(playlist.songs.map((song) => song.id))
+                      })
+                    }}
                     onDelete={() => deletePlaylist({ id: pl.id, name: pl.name })}
                     onChanged={() => void refreshPlaylists()}
                   />

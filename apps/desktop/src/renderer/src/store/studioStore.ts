@@ -63,6 +63,7 @@ function flushSave(songId: string): void {
  * mid-load) bails and disposes the engine it created. Not reactive state.
  */
 let loadSeq = 0
+let playbackEndedHandler: (() => void) | null = null
 
 interface StudioData {
   /** Owns the audio graph; null before load / after dispose. */
@@ -103,6 +104,7 @@ interface StudioData {
 interface StudioActions {
   load: (songId: string) => Promise<void>
   dispose: () => void
+  setPlaybackEndedHandler: (handler: (() => void) | null) => void
 
   tick: () => void
   togglePlay: () => Promise<void>
@@ -271,10 +273,15 @@ export const useStudioStore = create<StudioStore>()((set, get) => ({
       } else if (engine.duration > 0 && engine.currentTime >= engine.duration) {
         engine.handleEnded()
         set({ playing: false })
+        playbackEndedHandler?.()
       }
     }
     const t = engine.currentTime
     if (t !== get().currentTime) set({ currentTime: t })
+  },
+
+  setPlaybackEndedHandler: (handler) => {
+    playbackEndedHandler = handler
   },
 
   togglePlay: async () => {

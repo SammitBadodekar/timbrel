@@ -1,7 +1,7 @@
 /**
- * Playlists — user-made collections of songs (v0.6). A playlist is a practice
- * setlist: an ordered list of songs you open in the studio, NOT a playback
- * queue. Membership is a many-to-many join (`playlist_songs`), so deleting a
+ * Playlists — user-made collections of songs (v0.6). A playlist is an ordered
+ * practice setlist that can also seed the desktop playback queue. Membership
+ * is a many-to-many join (`playlist_songs`), so deleting a
  * playlist never deletes the songs inside it, and deleting a song simply drops
  * it from any playlists it was in.
  */

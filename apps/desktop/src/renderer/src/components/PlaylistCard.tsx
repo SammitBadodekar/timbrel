@@ -36,6 +36,7 @@ function MosaicCover({ songs }: { songs: PlaylistCover[] }): React.JSX.Element {
 interface PlaylistCardProps {
   playlist: PlaylistSummary
   onOpen: () => void
+  onPlay: () => void
   onDelete: () => void
   /** Refresh the shelf after an inline rename. */
   onChanged: () => void
@@ -44,6 +45,7 @@ interface PlaylistCardProps {
 function PlaylistCard({
   playlist,
   onOpen,
+  onPlay,
   onDelete,
   onChanged
 }: PlaylistCardProps): React.JSX.Element {
@@ -110,6 +112,19 @@ function PlaylistCard({
       className="animate-pop group relative cursor-pointer rounded-3xl border border-border bg-surface p-3 transition-transform hover:-translate-y-0.5 hover:shadow-[var(--shadow-card)]"
     >
       <MosaicCover songs={playlist.coverSongs} />
+
+      <button
+        onClick={(event) => {
+          event.stopPropagation()
+          onPlay()
+        }}
+        disabled={playlist.trackCount === 0}
+        className="absolute bottom-[4.25rem] right-5 grid h-11 w-11 place-items-center rounded-full bg-charcoal pl-0.5 text-base text-white opacity-0 shadow-[var(--shadow-card)] transition-all hover:scale-105 hover:bg-charcoal-hover disabled:hidden group-hover:opacity-100 group-focus-within:opacity-100"
+        aria-label={`Play playlist ${playlist.name}`}
+        title="Play playlist"
+      >
+        ▶
+      </button>
 
       {/* ⋯ menu */}
       <div ref={menuWrapRef} className="absolute right-4 top-4">

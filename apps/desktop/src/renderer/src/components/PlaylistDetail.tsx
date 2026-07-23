@@ -9,7 +9,7 @@ import AddToPlaylistMenu from './AddToPlaylistMenu'
 interface PlaylistDetailProps {
   playlistId: string
   onBack: () => void
-  onOpenSong: (songId: string) => void
+  onPlayPlaylist: (songIds: string[], startIndex?: number) => void
 }
 
 function totalLabel(songs: SongSummary[]): string {
@@ -22,7 +22,7 @@ function totalLabel(songs: SongSummary[]): string {
 function PlaylistDetail({
   playlistId,
   onBack,
-  onOpenSong
+  onPlayPlaylist
 }: PlaylistDetailProps): React.JSX.Element {
   const [data, setData] = useState<PlaylistDetailData | null>(null)
   const [songs, setSongs] = useState<SongSummary[]>([])
@@ -172,6 +172,13 @@ function PlaylistDetail({
           <div className="mt-1 text-sm tabular-nums text-muted">{totalLabel(songs)}</div>
         </div>
         <button
+          onClick={() => onPlayPlaylist(songs.map((song) => song.id))}
+          disabled={songs.length === 0}
+          className="shrink-0 rounded-full bg-charcoal px-5 py-2.5 text-sm font-semibold text-white hover:bg-charcoal-hover disabled:opacity-40"
+        >
+          ▶ Play
+        </button>
+        <button
           onClick={() => setConfirmDelete(true)}
           className="shrink-0 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-muted hover:border-danger hover:text-danger"
         >
@@ -208,7 +215,12 @@ function PlaylistDetail({
                 key={song.id}
                 variant="playlist"
                 song={song}
-                onOpen={() => onOpenSong(song.id)}
+                onOpen={() =>
+                  onPlayPlaylist(
+                    songs.map((item) => item.id),
+                    i
+                  )
+                }
                 onRemove={() => void removeMany([song.id])}
                 selectionActive={selectionActive}
                 selected={selection.has(song.id)}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Home from './components/Home'
 import Studio from './components/Studio'
 import PlaylistDetail from './components/PlaylistDetail'
@@ -9,6 +9,11 @@ import { ConcertLightsController, ConcertLightsPanel } from './components/Concer
 import { useRoutingStore } from './store/routingStore'
 import { useConcertLightsStore } from './store/concertLightsStore'
 import { useStudioStore } from './store/studioStore'
+
+interface PlaybackQueue {
+  songIds: string[]
+  index: number
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return (
@@ -31,6 +36,7 @@ function App(): React.JSX.Element {
   const [playlistId, setPlaylistId] = useState<string | null>(null)
   const [spotifyOpen, setSpotifyOpen] = useState(false)
   const [searchFocusRequest, setSearchFocusRequest] = useState(0)
+  const [queue, setQueue] = useState<PlaybackQueue | null>(null)
 
   // Load the global output-routing rig + enumerate devices once, app-wide.
   useEffect(() => {
@@ -47,6 +53,7 @@ function App(): React.JSX.Element {
         setSongId(null)
         setPlaylistId(null)
         setSpotifyOpen(false)
+        setQueue(null)
         setSearchFocusRequest((request) => request + 1)
         return
       }
@@ -98,15 +105,55 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [songId])
 
+  const playQueue = (songIds: string[], startIndex = 0): void => {
+    if (songIds.length === 0) return
+    const index = Math.max(0, Math.min(startIndex, songIds.length - 1))
+    setQueue({ songIds, index })
+    setSongId(songIds[index]!)
+  }
+
+  const moveInQueue = useCallback(
+    (delta: number): void => {
+      if (!queue) return
+      const index = queue.index + delta
+      if (index < 0 || index >= queue.songIds.length) return
+      setSongId(queue.songIds[index]!)
+      setQueue({ ...queue, index })
+    },
+    [queue]
+  )
+
+  useEffect(() => {
+    useStudioStore.getState().setPlaybackEndedHandler(() => {
+      const current = queue
+      if (current && current.index < current.songIds.length - 1) moveInQueue(1)
+    })
+    return () => useStudioStore.getState().setPlaybackEndedHandler(null)
+  }, [moveInQueue, queue])
+
   let content: React.JSX.Element
   if (songId) {
-    content = <Studio songId={songId} onBack={() => setSongId(null)} />
+    content = (
+      <Studio
+        songId={songId}
+        autoPlay={queue !== null}
+        queuePosition={
+          queue ? { current: queue.index + 1, total: queue.songIds.length } : undefined
+        }
+        onPrevious={queue && queue.index > 0 ? () => moveInQueue(-1) : undefined}
+        onNext={queue && queue.index < queue.songIds.length - 1 ? () => moveInQueue(1) : undefined}
+        onBack={() => {
+          setQueue(null)
+          setSongId(null)
+        }}
+      />
+    )
   } else if (playlistId) {
     content = (
       <PlaylistDetail
         playlistId={playlistId}
         onBack={() => setPlaylistId(null)}
-        onOpenSong={setSongId}
+        onPlayPlaylist={playQueue}
       />
     )
   } else if (spotifyOpen) {
@@ -115,8 +162,12 @@ function App(): React.JSX.Element {
     content = (
       <Home
         searchFocusRequest={searchFocusRequest}
-        onOpenSong={setSongId}
+        onOpenSong={(id) => {
+          setQueue(null)
+          setSongId(id)
+        }}
         onOpenPlaylist={setPlaylistId}
+        onPlayPlaylist={playQueue}
         onOpenSpotify={() => setSpotifyOpen(true)}
       />
     )

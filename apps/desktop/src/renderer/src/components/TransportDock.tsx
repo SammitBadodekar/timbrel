@@ -194,7 +194,17 @@ function LoopControls(): React.JSX.Element {
 
 /** The whole HUD pill. `mx-auto w-fit` centres it within whatever bar/overlay
  *  the caller places it in. */
-function TransportDock(): React.JSX.Element {
+interface TransportDockProps {
+  queuePosition?: { current: number; total: number }
+  onPrevious?: () => void
+  onNext?: () => void
+}
+
+function TransportDock({
+  queuePosition,
+  onPrevious,
+  onNext
+}: TransportDockProps): React.JSX.Element {
   const playing = useStudioStore((s) => s.playing)
   const countingIn = useStudioStore((s) => s.countingIn)
   const metronome = useStudioStore((s) => s.metronome)
@@ -202,6 +212,21 @@ function TransportDock(): React.JSX.Element {
 
   return (
     <div className="mx-auto flex w-fit max-w-full items-center gap-3 overflow-x-auto rounded-full border border-border bg-surface py-2.5 pl-2.5 pr-4 shadow-[var(--shadow-dock)]">
+      {queuePosition && (
+        <>
+          <button
+            onClick={onPrevious}
+            disabled={!onPrevious}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30"
+            aria-label="Previous track"
+          >
+            ◀◀
+          </button>
+          <span className="shrink-0 text-xs font-medium tabular-nums text-muted">
+            {queuePosition.current} / {queuePosition.total}
+          </span>
+        </>
+      )}
       <button
         onClick={() => void useStudioStore.getState().togglePlay()}
         className={`grid h-11 w-11 shrink-0 place-items-center rounded-full bg-charcoal text-white hover:bg-charcoal-hover ${
@@ -211,6 +236,17 @@ function TransportDock(): React.JSX.Element {
       >
         {countingIn ? '…' : playing ? '❚❚' : '▶'}
       </button>
+
+      {queuePosition && (
+        <button
+          onClick={onNext}
+          disabled={!onNext}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30"
+          aria-label="Next track"
+        >
+          ▶▶
+        </button>
+      )}
 
       <TransportScrubber />
 
